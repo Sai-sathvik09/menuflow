@@ -49,6 +49,10 @@ export function useWebSocket() {
         } else if (data.type === "ORDER_UPDATE") {
           // Invalidate orders query to fetch updated data
           queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
+        } else if (data.type === "ORDER_ARCHIVED") {
+          // Invalidate orders query to remove archived order from active view and refresh history
+          queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
+          queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id, "archived"] });
         } else if (data.type === "NEW_MESSAGE") {
           // Invalidate chat messages query to fetch new messages
           queryClient.invalidateQueries({ queryKey: ["/api/chat", vendor.id] });

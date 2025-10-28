@@ -77,6 +77,7 @@ export const orders = pgTable("orders", {
   items: json("items").notNull().$type<Array<{ menuItemId: string; name: string; price: string; quantity: number }>>(),
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   customerName: text("customer_name"),
+  archived: boolean("archived").notNull().default(false), // auto-archived after completion
   createdAt: timestamp("created_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
 });

@@ -25,6 +25,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Store active vendor connections
   const vendorConnections = new Map<string, WebSocket[]>();
+  const archiveTimers = new Map<string, NodeJS.Timeout>();
 
   wss.on('connection', (ws, req) => {
     const vendorId = new URL(req.url!, `http://${req.headers.host}`).searchParams.get('vendorId');
@@ -229,7 +230,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid status" });
       }
 
-      const order = await storage.updateOrderStatus(req.params.id, status);
+      const orderId = req.params.id;
+
+      // Cancel any existing archive timer for this order
+      const existingTimer = archiveTimers.get(orderId);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        archiveTimers.delete(orderId);
+      }
+
+      const order = await storage.updateOrderStatus(orderId, status);
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
@@ -240,9 +250,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         order,
       });
 
+      // Auto-archive after 1 minute if status is completed
+      if (status === "completed") {
+        const timer = setTimeout(async () => {
+          try {
+            // Re-fetch order to verify it's still completed
+            const currentOrder = await storage.getOrder(orderId);
+            if (currentOrder && currentOrder.status === "completed") {
+              const archived = await storage.archiveOrder(orderId);
+              if (archived) {
+                // Only broadcast if archiving succeeded
+                broadcastToVendor(order.vendorId, {
+                  type: 'ORDER_ARCHIVED',
+                  orderId,
+                });
+                archiveTimers.delete(orderId);
+              } else {
+                console.error(`Failed to archive order ${orderId}: Order not found`);
+              }
+            } else {
+              console.log(`Skipping archive for order ${orderId}: status changed from completed`);
+            }
+            archiveTimers.delete(orderId);
+          } catch (error) {
+            console.error(`Failed to archive order ${orderId}:`, error);
+            archiveTimers.delete(orderId);
+          }
+        }, 60000); // 60 seconds = 1 minute
+        
+        archiveTimers.set(orderId, timer);
+      }
+
       res.json(order);
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to update order status" });
+    }
+  });
+
+  app.get("/api/orders/:vendorId/archived", async (req, res) => {
+    try {
+      const allOrders = await storage.getOrders(req.params.vendorId, true);
+      const archivedOrders = allOrders.filter(order => order.archived);
+      res.json(archivedOrders);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch archived orders" });
     }
   });
 

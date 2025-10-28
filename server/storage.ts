@@ -43,10 +43,11 @@ export interface IStorage {
   deleteTable(id: string): Promise<void>;
 
   // Orders
-  getOrders(vendorId: string): Promise<Order[]>;
+  getOrders(vendorId: string, includeArchived?: boolean): Promise<Order[]>;
   getOrder(id: string): Promise<Order | undefined>;
   createOrder(order: InsertOrder & { orderNumber: number }): Promise<Order>;
   updateOrderStatus(id: string, status: Order["status"]): Promise<Order | undefined>;
+  archiveOrder(id: string): Promise<Order | undefined>;
   getNextOrderNumber(vendorId: string): Promise<number>;
 
   // Chat Messages
@@ -144,11 +145,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Orders
-  async getOrders(vendorId: string): Promise<Order[]> {
+  async getOrders(vendorId: string, includeArchived: boolean = false): Promise<Order[]> {
+    const conditions = includeArchived
+      ? eq(orders.vendorId, vendorId)
+      : and(eq(orders.vendorId, vendorId), eq(orders.archived, false));
+    
     return await db
       .select()
       .from(orders)
-      .where(eq(orders.vendorId, vendorId))
+      .where(conditions)
       .orderBy(desc(orders.createdAt));
   }
 
@@ -179,19 +184,21 @@ export class DatabaseStorage implements IStorage {
     return updated || undefined;
   }
 
-  async getNextOrderNumber(vendorId: string): Promise<number> {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+  async archiveOrder(id: string): Promise<Order | undefined> {
+    const [updated] = await db
+      .update(orders)
+      .set({ archived: true })
+      .where(eq(orders.id, id))
+      .returning();
+    return updated || undefined;
+  }
 
+  async getNextOrderNumber(vendorId: string): Promise<number> {
+    // Get all non-archived orders for this vendor to prevent duplicate numbers
     const recentOrders = await db
       .select()
       .from(orders)
-      .where(
-        and(
-          eq(orders.vendorId, vendorId),
-          eq(orders.status, "new")
-        )
-      )
+      .where(eq(orders.vendorId, vendorId))
       .orderBy(desc(orders.orderNumber));
 
     if (recentOrders.length === 0) {

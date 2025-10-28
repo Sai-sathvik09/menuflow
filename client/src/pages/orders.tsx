@@ -15,9 +15,15 @@ export default function Orders() {
   // Connect to WebSocket for real-time order updates
   useWebSocket();
 
-  // Fetch orders
+  // Fetch active (non-archived) orders
   const { data: allOrders = [], isLoading } = useQuery<Order[]>({
     queryKey: ["/api/orders", vendor?.id],
+    enabled: !!vendor?.id,
+  });
+
+  // Fetch archived orders using the same pattern as active orders
+  const { data: archivedOrders = [], isLoading: isLoadingArchived, isError: isErrorArchived } = useQuery<Order[]>({
+    queryKey: ["/api/orders", vendor?.id, "archived"],
     enabled: !!vendor?.id,
   });
 
@@ -41,7 +47,10 @@ export default function Orders() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      if (vendor?.id) {
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id, "archived"] });
+      }
       toast({
         title: "Order updated",
         description: "Order status has been updated successfully",
@@ -76,7 +85,7 @@ export default function Orders() {
       </div>
 
       <Tabs defaultValue="all" className="w-full">
-        <TabsList className="grid w-full grid-cols-5 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-6 max-w-3xl">
           <TabsTrigger value="all" data-testid="tab-all">
             All ({allOrders.length})
           </TabsTrigger>
@@ -91,6 +100,9 @@ export default function Orders() {
           </TabsTrigger>
           <TabsTrigger value="completed" data-testid="tab-completed">
             Completed ({completedOrders.length})
+          </TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history">
+            History ({archivedOrders.length})
           </TabsTrigger>
         </TabsList>
 
@@ -178,14 +190,53 @@ export default function Orders() {
           {completedOrders.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
-                No completed orders
+                <p>No completed orders</p>
+                <p className="text-sm mt-2">Completed orders will auto-archive after 1 minute</p>
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {completedOrders.map(order => (
-                <OrderCard key={order.id} order={order} />
-              ))}
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                These orders will be automatically moved to Order History after 1 minute
+              </p>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {completedOrders.map(order => (
+                  <OrderCard key={order.id} order={order} />
+                ))}
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-6">
+          {isLoadingArchived ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                Loading order history...
+              </CardContent>
+            </Card>
+          ) : isErrorArchived ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                Failed to load archived orders
+              </CardContent>
+            </Card>
+          ) : archivedOrders.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                No archived orders
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Order history - archived completed orders
+              </p>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {archivedOrders.map(order => (
+                  <OrderCard key={order.id} order={order} />
+                ))}
+              </div>
             </div>
           )}
         </TabsContent>
