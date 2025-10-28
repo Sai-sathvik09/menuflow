@@ -84,7 +84,7 @@ export default function CustomerMenu() {
         items: cartItems.map(item => ({
           menuItemId: item.id,
           name: item.name,
-          price: item.price,
+          price: String(item.price),
           quantity: item.quantity,
         })),
         totalAmount: totalAmount.toFixed(2),
