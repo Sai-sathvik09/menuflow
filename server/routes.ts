@@ -9,9 +9,13 @@ import {
   insertMenuItemSchema,
   insertTableSchema,
   insertOrderSchema,
-  type Order 
+  insertChatMessageSchema,
+  insertFileUploadSchema,
+  type Order,
+  type InsertMenuItem
 } from "@shared/schema";
 import bcrypt from "bcrypt";
+import Papa from "papaparse";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
@@ -239,6 +243,187 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(order);
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to update order status" });
+    }
+  });
+
+  // Chat Routes
+  app.get("/api/chat/:vendorId", async (req, res) => {
+    try {
+      const { orderId } = req.query;
+      
+      // Require orderId to prevent accessing all vendor messages
+      if (!orderId) {
+        return res.status(400).json({ 
+          message: "orderId is required to access chat messages" 
+        });
+      }
+      
+      const messages = await storage.getChatMessages(
+        req.params.vendorId,
+        orderId as string
+      );
+      res.json(messages);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch messages" });
+    }
+  });
+
+  app.post("/api/chat", async (req, res) => {
+    try {
+      const data = insertChatMessageSchema.parse(req.body);
+      
+      // Validate that the order exists before allowing chat
+      if (data.orderId) {
+        const order = await storage.getOrder(data.orderId);
+        if (!order || order.vendorId !== data.vendorId) {
+          return res.status(404).json({ message: "Order not found" });
+        }
+      } else {
+        return res.status(400).json({ message: "orderId is required for chat" });
+      }
+      
+      const message = await storage.createChatMessage(data);
+
+      // Broadcast new message to vendor via WebSocket
+      broadcastToVendor(data.vendorId, {
+        type: 'NEW_MESSAGE',
+        message,
+      });
+
+      res.json(message);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to send message" });
+    }
+  });
+
+  app.patch("/api/chat/:vendorId/read", async (req, res) => {
+    try {
+      const { orderId } = req.query;
+      
+      // Require orderId for security (only mark specific conversation as read)
+      if (!orderId) {
+        return res.status(400).json({ message: "orderId is required" });
+      }
+      
+      await storage.markMessagesAsRead(
+        req.params.vendorId,
+        orderId as string
+      );
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to mark messages as read" });
+    }
+  });
+
+  app.get("/api/chat/:vendorId/unread-count", async (req, res) => {
+    try {
+      const count = await storage.getUnreadCount(req.params.vendorId);
+      res.json({ count });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to get unread count" });
+    }
+  });
+
+  // File Upload Routes
+  app.get("/api/uploads/:vendorId", async (req, res) => {
+    try {
+      const uploads = await storage.getFileUploads(req.params.vendorId);
+      res.json(uploads);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch uploads" });
+    }
+  });
+
+  app.post("/api/uploads", async (req, res) => {
+    try {
+      const data = insertFileUploadSchema.parse(req.body);
+      const upload = await storage.createFileUpload(data);
+      res.json(upload);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create upload record" });
+    }
+  });
+
+  // CSV Import Route
+  app.post("/api/menu/import-csv", async (req, res) => {
+    try {
+      const { vendorId, csvData, uploadId } = req.body;
+
+      if (!csvData || !vendorId) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Parse CSV data using Papa Parse
+      const parsed = Papa.parse(csvData.trim(), {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header: string) => header.toLowerCase().trim(),
+      });
+
+      const items: InsertMenuItem[] = [];
+      const errors: string[] = [];
+
+      parsed.data.forEach((row: any, index: number) => {
+        try {
+          // Map CSV columns to menu item schema
+          const item: InsertMenuItem = {
+            vendorId,
+            name: row.name || row.item || row['dish name'] || '',
+            description: row.description || row.desc || '',
+            price: row.price || '0',
+            category: row.category || row.type || 'Other',
+            imageUrl: row.image || row.imageurl || row['image url'] || undefined,
+            isAvailable: row.available !== 'false' && row.available !== '0',
+            dietaryTags: row.tags ? row.tags.split('|').map((t: string) => t.trim()) : [],
+            importSource: 'csv'
+          };
+
+          // Validate required fields
+          if (!item.name || !item.price) {
+            errors.push(`Row ${index + 2}: Missing name or price`);
+            return;
+          }
+
+          // Validate price format
+          if (!/^\d+(\.\d{1,2})?$/.test(item.price)) {
+            errors.push(`Row ${index + 2}: Invalid price format`);
+            return;
+          }
+
+          items.push(item);
+        } catch (error: any) {
+          errors.push(`Row ${index + 2}: ${error.message}`);
+        }
+      });
+
+      // Check for Papa Parse errors
+      if (parsed.errors && parsed.errors.length > 0) {
+        parsed.errors.forEach((err: any) => {
+          errors.push(`CSV Parse Error (Row ${err.row}): ${err.message}`);
+        });
+      }
+
+      // Bulk insert items
+      const createdItems = await storage.bulkCreateMenuItems(items);
+
+      // Update upload status
+      if (uploadId) {
+        await storage.updateFileUploadStatus(
+          uploadId,
+          'completed',
+          createdItems.length,
+          errors.length > 0 ? errors.join('; ') : undefined
+        );
+      }
+
+      res.json({
+        success: true,
+        itemsImported: createdItems.length,
+        totalRows: parsed.data.length,
+        errors: errors.length > 0 ? errors : undefined
+      });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to import CSV" });
     }
   });
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertMenuItemSchema, type MenuItem, type InsertMenuItem } from "@shared/schema";
+import { insertMenuItemSchema, type MenuItem, type InsertMenuItem, VENDOR_CATEGORIES } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,17 +12,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { MenuItemCard } from "@/components/menu-item-card";
+import { MenuBulkImport } from "@/components/menu-bulk-import";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 
-const categories = ["appetizers", "mains", "beverages", "desserts", "sides"];
 const dietaryOptions = ["vegetarian", "vegan", "spicy", "gluten-free"];
 
 export default function MenuEditor() {
   const { toast } = useToast();
   const { vendor } = useAuth();
   const queryClient = useQueryClient();
+  
+  // Get categories based on vendor's business type
+  const businessType = (vendor?.businessType as keyof typeof VENDOR_CATEGORIES) || "restaurant";
+  const categories = VENDOR_CATEGORIES[businessType] || VENDOR_CATEGORIES.restaurant;
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
 
@@ -38,7 +42,7 @@ export default function MenuEditor() {
       name: "",
       description: "",
       price: "",
-      category: "mains",
+      category: categories[0] || "Main Course",
       imageUrl: "",
       isAvailable: true,
       dietaryTags: [],
@@ -65,7 +69,7 @@ export default function MenuEditor() {
         name: "",
         description: "",
         price: "",
-        category: "mains",
+        category: categories[0] || "Main Course",
         imageUrl: "",
         isAvailable: true,
         dietaryTags: [],
@@ -226,6 +230,7 @@ export default function MenuEditor() {
                         <Textarea 
                           placeholder="Delicious tacos with spicy chicken, fresh salsa, and guacamole"
                           {...field}
+                          value={field.value || ""}
                           data-testid="input-description"
                         />
                       </FormControl>
@@ -263,7 +268,7 @@ export default function MenuEditor() {
                           </FormControl>
                           <SelectContent>
                             {categories.map(cat => (
-                              <SelectItem key={cat} value={cat} className="capitalize">
+                              <SelectItem key={cat} value={cat}>
                                 {cat}
                               </SelectItem>
                             ))}
@@ -282,7 +287,7 @@ export default function MenuEditor() {
                     <FormItem>
                       <FormLabel>Image URL (optional)</FormLabel>
                       <FormControl>
-                        <Input placeholder="https://example.com/image.jpg" {...field} data-testid="input-image-url" />
+                        <Input placeholder="https://example.com/image.jpg" {...field} value={field.value || ""} data-testid="input-image-url" />
                       </FormControl>
                       <FormDescription>Paste a link to your food image</FormDescription>
                       <FormMessage />
@@ -325,6 +330,8 @@ export default function MenuEditor() {
           </DialogContent>
         </Dialog>
       </div>
+
+      <MenuBulkImport />
 
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground">Loading menu...</div>

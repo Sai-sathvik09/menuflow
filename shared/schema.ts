@@ -10,6 +10,7 @@ export const vendors = pgTable("vendors", {
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
   businessName: text("business_name").notNull(),
+  businessType: text("business_type").notNull().default("restaurant"), // restaurant, streetFood, cafe, bakery, quickService
   subscriptionTier: text("subscription_tier").notNull().default("starter"), // starter, pro, elite
   tableLimit: integer("table_limit").default(0), // 0 for starter, 10/25/unlimited for pro tiers
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -26,6 +27,33 @@ export const menuItems = pgTable("menu_items", {
   imageUrl: text("image_url"),
   isAvailable: boolean("is_available").notNull().default(true),
   dietaryTags: text("dietary_tags").array(), // vegetarian, vegan, spicy, gluten-free, etc.
+  importSource: text("import_source"), // csv, pdf, manual, photo
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Chat messages table
+export const chatMessages = pgTable("chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  orderId: varchar("order_id").references(() => orders.id, { onDelete: "cascade" }),
+  senderType: text("sender_type").notNull(), // customer, vendor
+  senderName: text("sender_name").notNull(),
+  message: text("message").notNull(),
+  messageType: text("message_type").notNull().default("text"), // text, order_inquiry, menu_question, feedback, support
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// File uploads table
+export const fileUploads = pgTable("file_uploads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(), // csv, pdf, image
+  fileUrl: text("file_url").notNull(),
+  processingStatus: text("processing_status").notNull().default("pending"), // pending, processing, completed, failed
+  itemsImported: integer("items_imported").default(0),
+  errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -75,7 +103,7 @@ export const tablesRelations = relations(tables, ({ one, many }) => ({
   orders: many(orders),
 }));
 
-export const ordersRelations = relations(orders, ({ one }) => ({
+export const ordersRelations = relations(orders, ({ one, many }) => ({
   vendor: one(vendors, {
     fields: [orders.vendorId],
     references: [vendors.id],
@@ -83,6 +111,25 @@ export const ordersRelations = relations(orders, ({ one }) => ({
   table: one(tables, {
     fields: [orders.tableId],
     references: [tables.id],
+  }),
+  chatMessages: many(chatMessages),
+}));
+
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  vendor: one(vendors, {
+    fields: [chatMessages.vendorId],
+    references: [vendors.id],
+  }),
+  order: one(orders, {
+    fields: [chatMessages.orderId],
+    references: [orders.id],
+  }),
+}));
+
+export const fileUploadsRelations = relations(fileUploads, ({ one }) => ({
+  vendor: one(vendors, {
+    fields: [fileUploads.vendorId],
+    references: [vendors.id],
   }),
 }));
 
@@ -94,6 +141,7 @@ export const insertVendorSchema = createInsertSchema(vendors).omit({
   email: z.string().email(),
   password: z.string().min(6),
   businessName: z.string().min(1),
+  businessType: z.enum(["restaurant", "streetFood", "cafe", "bakery", "quickService"]).optional(),
   subscriptionTier: z.enum(["starter", "pro", "elite"]).optional(),
 });
 
@@ -130,6 +178,24 @@ export const insertOrderSchema = createInsertSchema(orders).omit({
   totalAmount: z.string().regex(/^\d+(\.\d{1,2})?$/),
 });
 
+export const insertChatMessageSchema = createInsertSchema(chatMessages).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  senderType: z.enum(["customer", "vendor"]),
+  messageType: z.enum(["text", "order_inquiry", "menu_question", "feedback", "support"]).optional(),
+  message: z.string().min(1),
+});
+
+export const insertFileUploadSchema = createInsertSchema(fileUploads).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  fileType: z.enum(["csv", "pdf", "image"]),
+  fileName: z.string().min(1),
+  fileUrl: z.string().url(),
+});
+
 // Login schema
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -145,8 +211,64 @@ export type InsertTable = z.infer<typeof insertTableSchema>;
 export type Table = typeof tables.$inferSelect;
 export type InsertOrder = z.infer<typeof insertOrderSchema>;
 export type Order = typeof orders.$inferSelect;
+export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertFileUpload = z.infer<typeof insertFileUploadSchema>;
+export type FileUpload = typeof fileUploads.$inferSelect;
 export type LoginCredentials = z.infer<typeof loginSchema>;
 
 // Subscription tier types
 export type SubscriptionTier = "starter" | "pro" | "elite";
 export type OrderStatus = "new" | "preparing" | "ready" | "completed";
+export type SenderType = "customer" | "vendor";
+export type MessageType = "text" | "order_inquiry" | "menu_question" | "feedback" | "support";
+export type BusinessType = "restaurant" | "streetFood" | "cafe" | "bakery" | "quickService";
+
+// Predefined categories for different vendor types
+export const VENDOR_CATEGORIES = {
+  restaurant: [
+    "Appetizers",
+    "Soups & Salads",
+    "Main Course",
+    "Sides",
+    "Desserts",
+    "Beverages",
+    "Specials"
+  ],
+  streetFood: [
+    "Dosas",
+    "Chaats",
+    "Snacks",
+    "Sweet Dishes",
+    "Beverages",
+    "Ice Creams & Desserts",
+    "Combo Meals"
+  ],
+  cafe: [
+    "Coffee & Tea",
+    "Fresh Juices",
+    "Smoothies",
+    "Sandwiches",
+    "Pastries & Cakes",
+    "Breakfast Items",
+    "Light Bites"
+  ],
+  bakery: [
+    "Breads",
+    "Cakes",
+    "Pastries",
+    "Cookies",
+    "Savory Items",
+    "Custom Orders",
+    "Beverages"
+  ],
+  quickService: [
+    "Burgers",
+    "Pizzas",
+    "Wraps & Rolls",
+    "Fries & Sides",
+    "Beverages",
+    "Combos",
+    "Add-ons"
+  ]
+} as const;

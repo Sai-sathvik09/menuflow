@@ -49,6 +49,15 @@ export function useWebSocket() {
         } else if (data.type === "ORDER_UPDATE") {
           // Invalidate orders query to fetch updated data
           queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
+        } else if (data.type === "NEW_MESSAGE") {
+          // Invalidate chat messages query to fetch new messages
+          queryClient.invalidateQueries({ queryKey: ["/api/chat", vendor.id] });
+          
+          // Show toast notification for new message
+          toast({
+            title: "New Message",
+            description: `${data.message.senderName}: ${data.message.message.substring(0, 50)}...`,
+          });
         }
       } catch (error) {
         console.error("WebSocket message error:", error);

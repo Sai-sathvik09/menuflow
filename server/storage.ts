@@ -4,6 +4,8 @@ import {
   menuItems,
   tables,
   orders,
+  chatMessages,
+  fileUploads,
   type Vendor,
   type InsertVendor,
   type MenuItem,
@@ -12,6 +14,10 @@ import {
   type InsertTable,
   type Order,
   type InsertOrder,
+  type ChatMessage,
+  type InsertChatMessage,
+  type FileUpload,
+  type InsertFileUpload,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
@@ -42,6 +48,18 @@ export interface IStorage {
   createOrder(order: InsertOrder & { orderNumber: number }): Promise<Order>;
   updateOrderStatus(id: string, status: Order["status"]): Promise<Order | undefined>;
   getNextOrderNumber(vendorId: string): Promise<number>;
+
+  // Chat Messages
+  getChatMessages(vendorId: string, orderId?: string): Promise<ChatMessage[]>;
+  createChatMessage(message: InsertChatMessage): Promise<ChatMessage>;
+  markMessagesAsRead(vendorId: string, orderId?: string): Promise<void>;
+  getUnreadCount(vendorId: string): Promise<number>;
+
+  // File Uploads
+  getFileUploads(vendorId: string): Promise<FileUpload[]>;
+  createFileUpload(upload: InsertFileUpload): Promise<FileUpload>;
+  updateFileUploadStatus(id: string, status: FileUpload["processingStatus"], itemsImported?: number, errorMessage?: string): Promise<FileUpload | undefined>;
+  bulkCreateMenuItems(items: InsertMenuItem[]): Promise<MenuItem[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -181,6 +199,104 @@ export class DatabaseStorage implements IStorage {
     }
 
     return recentOrders[0].orderNumber + 1;
+  }
+
+  // Chat Messages
+  async getChatMessages(vendorId: string, orderId?: string): Promise<ChatMessage[]> {
+    const conditions = orderId
+      ? and(eq(chatMessages.vendorId, vendorId), eq(chatMessages.orderId, orderId))
+      : eq(chatMessages.vendorId, vendorId);
+
+    return await db
+      .select()
+      .from(chatMessages)
+      .where(conditions)
+      .orderBy(chatMessages.createdAt);
+  }
+
+  async createChatMessage(message: InsertChatMessage): Promise<ChatMessage> {
+    const [newMessage] = await db
+      .insert(chatMessages)
+      .values(message)
+      .returning();
+    return newMessage;
+  }
+
+  async markMessagesAsRead(vendorId: string, orderId?: string): Promise<void> {
+    const conditions = orderId
+      ? and(
+          eq(chatMessages.vendorId, vendorId),
+          eq(chatMessages.orderId, orderId),
+          eq(chatMessages.senderType, "customer")
+        )
+      : and(
+          eq(chatMessages.vendorId, vendorId),
+          eq(chatMessages.senderType, "customer")
+        );
+
+    await db
+      .update(chatMessages)
+      .set({ isRead: true })
+      .where(conditions);
+  }
+
+  async getUnreadCount(vendorId: string): Promise<number> {
+    const messages = await db
+      .select()
+      .from(chatMessages)
+      .where(
+        and(
+          eq(chatMessages.vendorId, vendorId),
+          eq(chatMessages.senderType, "customer"),
+          eq(chatMessages.isRead, false)
+        )
+      );
+    return messages.length;
+  }
+
+  // File Uploads
+  async getFileUploads(vendorId: string): Promise<FileUpload[]> {
+    return await db
+      .select()
+      .from(fileUploads)
+      .where(eq(fileUploads.vendorId, vendorId))
+      .orderBy(desc(fileUploads.createdAt));
+  }
+
+  async createFileUpload(upload: InsertFileUpload): Promise<FileUpload> {
+    const [newUpload] = await db
+      .insert(fileUploads)
+      .values(upload)
+      .returning();
+    return newUpload;
+  }
+
+  async updateFileUploadStatus(
+    id: string,
+    status: FileUpload["processingStatus"],
+    itemsImported?: number,
+    errorMessage?: string
+  ): Promise<FileUpload | undefined> {
+    const updates: any = { processingStatus: status };
+    if (itemsImported !== undefined) updates.itemsImported = itemsImported;
+    if (errorMessage !== undefined) updates.errorMessage = errorMessage;
+
+    const [updated] = await db
+      .update(fileUploads)
+      .set(updates)
+      .where(eq(fileUploads.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async bulkCreateMenuItems(items: InsertMenuItem[]): Promise<MenuItem[]> {
+    if (items.length === 0) return [];
+    
+    const createdItems = await db
+      .insert(menuItems)
+      .values(items)
+      .returning();
+    return createdItems;
   }
 }
 
