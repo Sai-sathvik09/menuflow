@@ -206,13 +206,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertOrderSchema.parse(req.body);
       
-      // Get next order number
-      const orderNumber = await storage.getNextOrderNumber(data.vendorId);
+      // Normalize empty string tableId to null
+      const normalizedData = {
+        ...data,
+        tableId: data.tableId && data.tableId.trim() !== '' ? data.tableId : null,
+      };
       
-      const order = await storage.createOrder({ ...data, orderNumber });
+      // Validate tableId if provided
+      if (normalizedData.tableId) {
+        const table = await storage.getTable(normalizedData.tableId);
+        if (!table) {
+          return res.status(400).json({ message: "Invalid table - table does not exist" });
+        }
+        if (table.vendorId !== normalizedData.vendorId) {
+          return res.status(400).json({ message: "Invalid table - table does not belong to this vendor" });
+        }
+      }
+      
+      // Get next order number
+      const orderNumber = await storage.getNextOrderNumber(normalizedData.vendorId);
+      
+      const order = await storage.createOrder({ ...normalizedData, orderNumber });
       
       // Broadcast new order to vendor's connected clients
-      broadcastToVendor(data.vendorId, {
+      broadcastToVendor(normalizedData.vendorId, {
         type: 'NEW_ORDER',
         order,
       });
