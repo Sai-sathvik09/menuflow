@@ -206,30 +206,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const data = insertOrderSchema.parse(req.body);
       
-      // Normalize empty string tableId to null
-      const normalizedData = {
-        ...data,
-        tableId: data.tableId && data.tableId.trim() !== '' ? data.tableId : null,
-      };
+      // Handle tableId - could be either a UUID or a table number from QR code URL
+      let actualTableId: string | null = null;
       
-      // Validate tableId if provided
-      if (normalizedData.tableId) {
-        const table = await storage.getTable(normalizedData.tableId);
+      if (data.tableId && data.tableId.trim() !== '') {
+        const tableIdOrNumber = data.tableId.trim();
+        
+        // First try looking it up as a UUID (direct table ID)
+        let table = await storage.getTable(tableIdOrNumber);
+        
+        // If not found, try looking it up as a table number (from QR code)
+        if (!table) {
+          table = await storage.getTableByNumber(data.vendorId, tableIdOrNumber);
+        }
+        
         if (!table) {
           return res.status(400).json({ message: "Invalid table - table does not exist" });
         }
-        if (table.vendorId !== normalizedData.vendorId) {
+        
+        // Verify table belongs to the vendor
+        if (table.vendorId !== data.vendorId) {
           return res.status(400).json({ message: "Invalid table - table does not belong to this vendor" });
         }
+        
+        actualTableId = table.id;
       }
       
-      // Get next order number
-      const orderNumber = await storage.getNextOrderNumber(normalizedData.vendorId);
+      // Create order data with the actual table ID (UUID)
+      const orderData = {
+        ...data,
+        tableId: actualTableId,
+      };
       
-      const order = await storage.createOrder({ ...normalizedData, orderNumber });
+      // Get next order number
+      const orderNumber = await storage.getNextOrderNumber(orderData.vendorId);
+      
+      const order = await storage.createOrder({ ...orderData, orderNumber });
       
       // Broadcast new order to vendor's connected clients
-      broadcastToVendor(normalizedData.vendorId, {
+      broadcastToVendor(orderData.vendorId, {
         type: 'NEW_ORDER',
         order,
       });
