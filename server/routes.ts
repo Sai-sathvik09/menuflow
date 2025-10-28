@@ -6,6 +6,7 @@ import { storage } from "./storage";
 import { 
   insertVendorSchema, 
   loginSchema, 
+  changePasswordSchema,
   insertMenuItemSchema,
   insertTableSchema,
   insertOrderSchema,
@@ -26,6 +27,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Store active vendor connections
   const vendorConnections = new Map<string, WebSocket[]>();
   const archiveTimers = new Map<string, NodeJS.Timeout>();
+
+  // Helper function to get the actual owner ID (for access control)
+  async function getOwnerIdForVendor(vendorId: string): Promise<{ ownerId: string; isWaiter: boolean } | null> {
+    const vendor = await storage.getVendor(vendorId);
+    if (!vendor) return null;
+    
+    // If waiter, return the owner ID. If owner, return their own ID
+    if (vendor.role === "waiter" && vendor.ownerId) {
+      return { ownerId: vendor.ownerId, isWaiter: true };
+    }
+    return { ownerId: vendor.id, isWaiter: false };
+  }
 
   wss.on('connection', (ws, req) => {
     const vendorId = new URL(req.url!, `http://${req.headers.host}`).searchParams.get('vendorId');
@@ -88,6 +101,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tableLimit,
       });
 
+      // Auto-create waiter account for the restaurant owner
+      const waiterEmail = `waiter-${vendor.id}@menuflow.app`;
+      const waiterPassword = "waiter123";
+      const waiterHashedPassword = await bcrypt.hash(waiterPassword, 10);
+
+      await storage.createVendor({
+        email: waiterEmail,
+        password: waiterHashedPassword,
+        businessName: `${vendor.businessName} - Waiter`,
+        businessType: vendor.businessType as any,
+        subscriptionTier: vendor.subscriptionTier as any,
+        tableLimit: 0,
+        role: "waiter",
+        ownerId: vendor.id,
+      });
+
       // Don't send password back
       const { password, ...vendorData } = vendor;
       res.json(vendorData);
@@ -118,6 +147,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/auth/change-password", async (req, res) => {
+    try {
+      const { vendorId, currentPassword, newPassword } = req.body;
+      
+      if (!vendorId) {
+        return res.status(400).json({ message: "Vendor ID required" });
+      }
+
+      const vendor = await storage.getVendor(vendorId);
+      if (!vendor) {
+        return res.status(404).json({ message: "Vendor not found" });
+      }
+
+      // Verify current password
+      const isValid = await bcrypt.compare(currentPassword, vendor.password);
+      if (!isValid) {
+        return res.status(401).json({ message: "Current password is incorrect" });
+      }
+
+      // Hash new password and update
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      const updated = await storage.updateVendorPassword(vendorId, hashedPassword);
+      
+      if (!updated) {
+        return res.status(500).json({ message: "Failed to update password" });
+      }
+
+      res.json({ message: "Password updated successfully" });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to change password" });
+    }
+  });
+
+  app.get("/api/auth/waiter/:ownerId", async (req, res) => {
+    try {
+      const waiter = await storage.getWaiterForOwner(req.params.ownerId);
+      
+      if (!waiter) {
+        return res.status(404).json({ message: "Waiter account not found" });
+      }
+
+      // Return waiter email (password will be the default: waiter123)
+      res.json({ 
+        email: waiter.email,
+        defaultPassword: "waiter123" 
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch waiter credentials" });
+    }
+  });
+
   // Menu Routes
   app.get("/api/menu/:vendorId", async (req, res) => {
     try {
@@ -131,6 +211,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/menu", async (req, res) => {
     try {
       const data = insertMenuItemSchema.parse(req.body);
+      
+      // Check if vendor is a waiter (waiters cannot manage menu)
+      const vendorInfo = await getOwnerIdForVendor(data.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage menu items" });
+      }
+      
       const item = await storage.createMenuItem(data);
       res.json(item);
     } catch (error: any) {
@@ -276,6 +363,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Order not found" });
       }
 
+      // Generate bill when order is completed
+      if (status === "completed") {
+        // Check if bill already exists for this order
+        const existingBill = await storage.getBillByOrderId(orderId);
+        
+        if (!existingBill) {
+          // Get table number if table exists
+          let tableNumber: string | null = null;
+          if (order.tableId) {
+            const table = await storage.getTable(order.tableId);
+            if (table) {
+              tableNumber = table.tableNumber;
+            }
+          }
+
+          // Create bill
+          await storage.createBill({
+            orderId: order.id,
+            vendorId: order.vendorId,
+            orderNumber: order.orderNumber,
+            tableNumber,
+            items: order.items.map(item => ({
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+            })),
+            totalAmount: order.totalAmount,
+            customerName: order.customerName,
+          });
+        }
+      }
+
       // Broadcast status update to vendor's connected clients
       broadcastToVendor(order.vendorId, {
         type: 'ORDER_UPDATE',
@@ -326,6 +445,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(archivedOrders);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch archived orders" });
+    }
+  });
+
+  // Bill Routes
+  app.get("/api/bills/:orderId", async (req, res) => {
+    try {
+      const bill = await storage.getBillByOrderId(req.params.orderId);
+      
+      if (!bill) {
+        return res.status(404).json({ message: "Bill not found" });
+      }
+
+      res.json(bill);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch bill" });
     }
   });
 

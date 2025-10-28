@@ -27,33 +27,39 @@ const menuItems = [
     title: "Dashboard",
     url: "/dashboard",
     icon: LayoutDashboard,
+    waiterAccess: false, // Waiters can see dashboard but it won't show waiter credentials
   },
   {
     title: "Live Orders",
     url: "/orders",
     icon: ListOrdered,
+    waiterAccess: true, // Waiters have full access to orders
   },
   {
     title: "Menu",
     url: "/menu",
     icon: UtensilsCrossed,
+    waiterAccess: false, // Only owners can manage menu
   },
   {
     title: "QR Codes",
     url: "/qr-codes",
     icon: QrCode,
+    waiterAccess: false, // Only owners can manage QR codes
   },
   {
     title: "Tables",
     url: "/tables",
     icon: MapPin,
     proOnly: true,
+    waiterAccess: false, // Only owners can manage tables
   },
   {
     title: "Analytics",
     url: "/analytics",
     icon: BarChart3,
     proOnly: true,
+    waiterAccess: false, // Only owners can see analytics
   },
 ];
 
@@ -62,6 +68,17 @@ export function AppSidebar() {
   const { vendor, logout } = useAuth();
 
   const isProOrElite = vendor?.subscriptionTier === "pro" || vendor?.subscriptionTier === "elite";
+  const isWaiter = vendor?.role === "waiter";
+
+  // Filter menu items based on role
+  const visibleMenuItems = menuItems.filter((item) => {
+    // If waiter, only show items with waiterAccess
+    if (isWaiter) {
+      return item.waiterAccess;
+    }
+    // If owner, show all items
+    return true;
+  });
 
   return (
     <Sidebar>
@@ -72,7 +89,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => {
+              {visibleMenuItems.map((item) => {
                 const isActive = location === item.url;
                 const isDisabled = item.proOnly && !isProOrElite;
 
@@ -113,10 +130,15 @@ export function AppSidebar() {
           <div className="text-sm">
             <div className="font-semibold text-sidebar-foreground">{vendor?.businessName}</div>
             <div className="text-sidebar-foreground/60 text-xs mt-0.5">{vendor?.email}</div>
-            <div className="mt-2">
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/20 text-primary capitalize">
                 {vendor?.subscriptionTier} Plan
               </span>
+              {isWaiter && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-status-preparing/20 text-status-preparing">
+                  Waiter
+                </span>
+              )}
             </div>
           </div>
           <Button 
