@@ -75,6 +75,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
+  // ============================================================================
+  // SECURITY WARNING - AUTHENTICATION LIMITATIONS
+  // ============================================================================
+  // The current implementation has CRITICAL security flaws:
+  // 
+  // 1. NO SECURE USER IDENTIFICATION: vendorId is passed from client (localStorage)
+  //    and can be spoofed by malicious users or compromised clients.
+  //
+  // 2. ROLE CHECKS CAN BE BYPASSED: Waiters can send owner's vendorId in requests
+  //    to bypass "owner-only" endpoint restrictions.
+  //
+  // 3. NO SESSION MANAGEMENT: Server cannot verify the actual identity of the 
+  //    requesting user.
+  //
+  // FOR PRODUCTION, IMPLEMENT:
+  // - Server-side session management (express-session with secure session store)
+  // - OR JWT tokens with proper signature verification
+  // - Authentication middleware that verifies user identity from secure sessions
+  // - Role-based authorization middleware that checks authenticated user's role
+  // - CSRF protection for state-changing operations
+  //
+  // Current role checks provide UI-level access control only and should NOT be
+  // relied upon for security. They prevent accidental access, not malicious bypass.
+  // ============================================================================
+  
   // Auth Routes
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -229,6 +254,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/menu/:id", async (req, res) => {
     try {
+      // Get existing item to verify ownership
+      const existingItem = await storage.getMenuItem(req.params.id);
+      if (!existingItem) {
+        return res.status(404).json({ message: "Menu item not found" });
+      }
+      
+      // Check if vendor is a waiter (waiters cannot manage menu)
+      const vendorInfo = await getOwnerIdForVendor(existingItem.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage menu items" });
+      }
+      
       const item = await storage.updateMenuItem(req.params.id, req.body);
       if (!item) {
         return res.status(404).json({ message: "Menu item not found" });
@@ -241,6 +278,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/menu/:id", async (req, res) => {
     try {
+      // Get existing item to verify ownership
+      const existingItem = await storage.getMenuItem(req.params.id);
+      if (!existingItem) {
+        return res.status(404).json({ message: "Menu item not found" });
+      }
+      
+      // Check if vendor is a waiter (waiters cannot manage menu)
+      const vendorInfo = await getOwnerIdForVendor(existingItem.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage menu items" });
+      }
+      
       await storage.deleteMenuItem(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
@@ -251,6 +300,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Table Routes
   app.get("/api/tables/:vendorId", async (req, res) => {
     try {
+      // Check if vendor is a waiter (waiters cannot manage tables)
+      const vendorInfo = await getOwnerIdForVendor(req.params.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage tables" });
+      }
+      
       const tables = await storage.getTables(req.params.vendorId);
       res.json(tables);
     } catch (error: any) {
@@ -261,6 +316,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tables", async (req, res) => {
     try {
       const data = insertTableSchema.parse(req.body);
+      
+      // Check if vendor is a waiter (waiters cannot manage tables)
+      const vendorInfo = await getOwnerIdForVendor(data.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage tables" });
+      }
       
       // Generate QR code data
       const qrCode = `menu/${data.vendorId}/table/${data.tableNumber}`;
@@ -274,6 +335,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/tables/:id", async (req, res) => {
     try {
+      // Get existing table to verify ownership
+      const existingTable = await storage.getTable(req.params.id);
+      if (!existingTable) {
+        return res.status(404).json({ message: "Table not found" });
+      }
+      
+      // Check if vendor is a waiter (waiters cannot manage tables)
+      const vendorInfo = await getOwnerIdForVendor(existingTable.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage tables" });
+      }
+      
       await storage.deleteTable(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
@@ -614,6 +687,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // File Upload Routes
   app.get("/api/uploads/:vendorId", async (req, res) => {
     try {
+      // Check if vendor is a waiter (waiters cannot manage file uploads)
+      const vendorInfo = await getOwnerIdForVendor(req.params.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage file uploads" });
+      }
+      
       const uploads = await storage.getFileUploads(req.params.vendorId);
       res.json(uploads);
     } catch (error: any) {
@@ -624,6 +703,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/uploads", async (req, res) => {
     try {
       const data = insertFileUploadSchema.parse(req.body);
+      
+      // Check if vendor is a waiter (waiters cannot manage file uploads)
+      const vendorInfo = await getOwnerIdForVendor(data.vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can manage file uploads" });
+      }
+      
       const upload = await storage.createFileUpload(data);
       res.json(upload);
     } catch (error: any) {
@@ -638,6 +724,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!csvData || !vendorId) {
         return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Check if vendor is a waiter (waiters cannot manage menu)
+      const vendorInfo = await getOwnerIdForVendor(vendorId);
+      if (!vendorInfo || vendorInfo.isWaiter) {
+        return res.status(403).json({ message: "Only owners can import menu items" });
       }
 
       // Parse CSV data using Papa Parse

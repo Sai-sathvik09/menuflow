@@ -57,6 +57,19 @@ Preferred communication style: Simple, everyday language.
 - Client-side auth context provides vendor state across application
 - Protected routes check vendor presence before rendering
 
+**⚠️ CRITICAL SECURITY LIMITATION:**
+The current authentication system is NOT production-ready and has critical security flaws:
+- vendorId is stored in client localStorage and passed in API requests (can be spoofed)
+- No server-side session management or JWT verification
+- Role-based access controls can be bypassed by sending owner's vendorId
+- Provides UI-level access control only, not security against malicious actors
+
+**Required for Production:**
+- Implement server-side session management (express-session) or JWT tokens
+- Add authentication middleware to verify user identity from secure sessions
+- Add CSRF protection for state-changing operations
+- Implement proper role-based authorization checking authenticated user's role
+
 **Order Management System:**
 - Sequential order numbering per vendor for easy calling out
 - Four-state workflow: new → preparing → ready → completed
