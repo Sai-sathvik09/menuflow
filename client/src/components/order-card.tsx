@@ -1,16 +1,18 @@
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "./status-badge";
-import { type Order } from "@shared/schema";
+import { type Order, type OrderStatus } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
-import { Hash, MapPin } from "lucide-react";
+import { Hash, MapPin, X, Receipt } from "lucide-react";
 
 interface OrderCardProps {
   order: Order & { table?: { tableNumber: string } | null };
   onStatusChange?: (orderId: string, newStatus: Order["status"]) => void;
+  onRemoveItem?: (orderId: string, itemIndex: number) => void;
+  onViewBill?: (orderId: string) => void;
 }
 
-export function OrderCard({ order, onStatusChange }: OrderCardProps) {
+export function OrderCard({ order, onStatusChange, onRemoveItem, onViewBill }: OrderCardProps) {
   const getNextStatus = (currentStatus: Order["status"]): Order["status"] | null => {
     const statusFlow: Record<Order["status"], Order["status"] | null> = {
       new: "preparing",
@@ -51,7 +53,7 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
               </div>
             )}
           </div>
-          <StatusBadge status={order.status} />
+          <StatusBadge status={order.status as OrderStatus} />
         </div>
       </CardHeader>
 
@@ -67,7 +69,20 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
                 <span className="font-semibold text-muted-foreground min-w-[1.5rem]">{item.quantity}x</span>
                 <span className="font-medium">{item.name}</span>
               </div>
-              <span className="font-semibold">${item.price}</span>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">${item.price}</span>
+                {onRemoveItem && order.items.length > 1 && order.status !== "completed" && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6"
+                    onClick={() => onRemoveItem(order.id, idx)}
+                    data-testid={`button-remove-item-${order.id}-${idx}`}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -86,19 +101,32 @@ export function OrderCard({ order, onStatusChange }: OrderCardProps) {
         )}
       </CardContent>
 
-      <CardFooter className="flex justify-between items-center pt-3 border-t">
+      <CardFooter className="flex justify-between items-center pt-3 border-t gap-2 flex-wrap">
         <span className="text-xs text-muted-foreground">
           {formatDistanceToNow(new Date(order.createdAt), { addSuffix: true })}
         </span>
-        {nextStatus && onStatusChange && (
-          <Button
-            onClick={() => onStatusChange(order.id, nextStatus)}
-            className="font-semibold"
-            data-testid={`button-status-${order.id}`}
-          >
-            {actionLabels[order.status]}
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {order.status === "completed" && onViewBill && (
+            <Button
+              onClick={() => onViewBill(order.id)}
+              variant="outline"
+              className="gap-2"
+              data-testid={`button-view-bill-${order.id}`}
+            >
+              <Receipt className="w-4 h-4" />
+              View Bill
+            </Button>
+          )}
+          {nextStatus && onStatusChange && (
+            <Button
+              onClick={() => onStatusChange(order.id, nextStatus)}
+              className="font-semibold"
+              data-testid={`button-status-${order.id}`}
+            >
+              {actionLabels[order.status]}
+            </Button>
+          )}
+        </div>
       </CardFooter>
     </Card>
   );

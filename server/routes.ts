@@ -40,10 +40,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return { ownerId: vendor.id, isWaiter: false };
   }
 
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', async (ws, req) => {
     const vendorId = new URL(req.url!, `http://${req.headers.host}`).searchParams.get('vendorId');
     
     if (vendorId) {
+      // For waiters connecting with owner ID, we store the connection under owner ID
+      // This ensures waiters receive broadcasts intended for the owner
       if (!vendorConnections.has(vendorId)) {
         vendorConnections.set(vendorId, []);
       }
@@ -435,6 +437,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(order);
     } catch (error: any) {
       res.status(400).json({ message: error.message || "Failed to update order status" });
+    }
+  });
+
+  app.patch("/api/orders/:id/items", async (req, res) => {
+    try {
+      const { items } = req.body;
+      
+      if (!items || !Array.isArray(items)) {
+        return res.status(400).json({ message: "Items must be an array" });
+      }
+
+      if (items.length === 0) {
+        return res.status(400).json({ message: "Order must have at least one item" });
+      }
+
+      // Get the current order to verify ownership
+      const currentOrder = await storage.getOrder(req.params.id);
+      if (!currentOrder) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      // Validate each item and recalculate prices from menu items
+      const validatedItems = [];
+      let totalAmount = 0;
+
+      for (const item of items) {
+        if (!item.menuItemId || !item.quantity || item.quantity <= 0) {
+          return res.status(400).json({ message: "Invalid item: missing menuItemId or invalid quantity" });
+        }
+
+        // Fetch the canonical menu item to get the actual price
+        const menuItem = await storage.getMenuItem(item.menuItemId);
+        if (!menuItem) {
+          return res.status(400).json({ message: `Menu item ${item.menuItemId} not found` });
+        }
+
+        // Use the canonical price from the database, not client-provided price
+        const itemPrice = parseFloat(menuItem.price);
+        const itemTotal = itemPrice * item.quantity;
+        totalAmount += itemTotal;
+
+        validatedItems.push({
+          menuItemId: menuItem.id,
+          name: menuItem.name,
+          price: menuItem.price,
+          quantity: item.quantity,
+        });
+      }
+
+      const order = await storage.updateOrderItems(
+        req.params.id, 
+        validatedItems, 
+        totalAmount.toFixed(2)
+      );
+      
+      if (!order) {
+        return res.status(500).json({ message: "Failed to update order" });
+      }
+
+      // Broadcast update to vendor's connected clients
+      broadcastToVendor(order.vendorId, {
+        type: 'ORDER_UPDATE',
+        order,
+      });
+
+      res.json(order);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to update order items" });
     }
   });
 

@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { OrderCard } from "@/components/order-card";
-import { type Order } from "@shared/schema";
+import { BillModal } from "@/components/bill-modal";
+import { type Order, type Bill } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -11,20 +13,26 @@ export default function Orders() {
   const { toast } = useToast();
   const { vendor } = useAuth();
   const queryClient = useQueryClient();
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   
   // Connect to WebSocket for real-time order updates
   useWebSocket();
 
+  // For waiters, use owner's ID for queries. For owners, use their own ID
+  const effectiveVendorId = vendor?.role === "waiter" && vendor?.ownerId 
+    ? vendor.ownerId 
+    : vendor?.id;
+
   // Fetch active (non-archived) orders
   const { data: allOrders = [], isLoading } = useQuery<Order[]>({
-    queryKey: ["/api/orders", vendor?.id],
-    enabled: !!vendor?.id,
+    queryKey: ["/api/orders", effectiveVendorId],
+    enabled: !!effectiveVendorId,
   });
 
   // Fetch archived orders using the same pattern as active orders
   const { data: archivedOrders = [], isLoading: isLoadingArchived, isError: isErrorArchived } = useQuery<Order[]>({
-    queryKey: ["/api/orders", vendor?.id, "archived"],
-    enabled: !!vendor?.id,
+    queryKey: ["/api/orders", effectiveVendorId, "archived"],
+    enabled: !!effectiveVendorId,
   });
 
   const newOrders = allOrders.filter(o => o.status === "new");
@@ -47,9 +55,9 @@ export default function Orders() {
       return response.json();
     },
     onSuccess: () => {
-      if (vendor?.id) {
-        queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
-        queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id, "archived"] });
+      if (effectiveVendorId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId, "archived"] });
       }
       toast({
         title: "Order updated",
@@ -67,6 +75,64 @@ export default function Orders() {
 
   const handleStatusChange = (orderId: string, newStatus: Order["status"]) => {
     updateStatusMutation.mutate({ orderId, status: newStatus });
+  };
+
+  const removeItemMutation = useMutation({
+    mutationFn: async ({ orderId, itemIndex }: { orderId: string; itemIndex: number }) => {
+      // Get the order first
+      const order = allOrders.find(o => o.id === orderId);
+      if (!order) throw new Error("Order not found");
+
+      // Remove the item at the specified index
+      const updatedItems = order.items.filter((_, idx) => idx !== itemIndex);
+
+      const response = await fetch(`/api/orders/${orderId}/items`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: updatedItems }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to remove item");
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      if (effectiveVendorId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId, "archived"] });
+      }
+      toast({
+        title: "Item removed",
+        description: "Item has been removed from the order",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Remove failed",
+        description: error.message || "Something went wrong",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleRemoveItem = (orderId: string, itemIndex: number) => {
+    removeItemMutation.mutate({ orderId, itemIndex });
+  };
+
+  // Fetch bill for selected order
+  const { data: selectedBill, isLoading: isBillLoading } = useQuery<Bill>({
+    queryKey: ["/api/bills", selectedOrderId],
+    enabled: !!selectedOrderId,
+  });
+
+  const handleViewBill = (orderId: string) => {
+    setSelectedOrderId(orderId);
+  };
+
+  const handleCloseBill = () => {
+    setSelectedOrderId(null);
   };
 
   if (isLoading) {
@@ -120,6 +186,7 @@ export default function Orders() {
                   key={order.id} 
                   order={order}
                   onStatusChange={handleStatusChange}
+                  onRemoveItem={handleRemoveItem}
                 />
               ))}
             </div>
@@ -140,6 +207,7 @@ export default function Orders() {
                   key={order.id} 
                   order={order}
                   onStatusChange={handleStatusChange}
+                  onRemoveItem={handleRemoveItem}
                 />
               ))}
             </div>
@@ -160,6 +228,7 @@ export default function Orders() {
                   key={order.id} 
                   order={order}
                   onStatusChange={handleStatusChange}
+                  onRemoveItem={handleRemoveItem}
                 />
               ))}
             </div>
@@ -180,6 +249,7 @@ export default function Orders() {
                   key={order.id} 
                   order={order}
                   onStatusChange={handleStatusChange}
+                  onRemoveItem={handleRemoveItem}
                 />
               ))}
             </div>
@@ -201,7 +271,11 @@ export default function Orders() {
               </p>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {completedOrders.map(order => (
-                  <OrderCard key={order.id} order={order} />
+                  <OrderCard 
+                    key={order.id} 
+                    order={order}
+                    onViewBill={handleViewBill}
+                  />
                 ))}
               </div>
             </div>
@@ -234,13 +308,24 @@ export default function Orders() {
               </p>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {archivedOrders.map(order => (
-                  <OrderCard key={order.id} order={order} />
+                  <OrderCard 
+                    key={order.id} 
+                    order={order}
+                    onViewBill={handleViewBill}
+                  />
                 ))}
               </div>
             </div>
           )}
         </TabsContent>
       </Tabs>
+
+      <BillModal
+        bill={selectedBill || null}
+        businessName={vendor?.businessName}
+        open={!!selectedOrderId}
+        onOpenChange={(open) => !open && handleCloseBill()}
+      />
     </div>
   );
 }

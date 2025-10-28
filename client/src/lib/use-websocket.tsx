@@ -12,9 +12,15 @@ export function useWebSocket() {
   useEffect(() => {
     if (!vendor?.id) return;
 
+    // For waiters, connect using the owner's ID so they receive the same broadcasts
+    // For owners, use their own ID
+    const connectionVendorId = vendor.role === "waiter" && vendor.ownerId 
+      ? vendor.ownerId 
+      : vendor.id;
+
     // WebSocket connection
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?vendorId=${vendor.id}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws?vendorId=${connectionVendorId}`;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
@@ -27,9 +33,14 @@ export function useWebSocket() {
       try {
         const data = JSON.parse(event.data);
 
+        // For waiters, use owner's ID for queries. For owners, use their own ID
+        const effectiveVendorId = vendor.role === "waiter" && vendor.ownerId 
+          ? vendor.ownerId 
+          : vendor.id;
+
         if (data.type === "NEW_ORDER") {
           // Invalidate orders query to fetch new data
-          queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
+          queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId] });
           
           // Show toast notification
           toast({
@@ -48,14 +59,14 @@ export function useWebSocket() {
           }
         } else if (data.type === "ORDER_UPDATE") {
           // Invalidate orders query to fetch updated data
-          queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
+          queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId] });
         } else if (data.type === "ORDER_ARCHIVED") {
           // Invalidate orders query to remove archived order from active view and refresh history
-          queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id] });
-          queryClient.invalidateQueries({ queryKey: ["/api/orders", vendor.id, "archived"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId] });
+          queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId, "archived"] });
         } else if (data.type === "NEW_MESSAGE") {
           // Invalidate chat messages query to fetch new messages
-          queryClient.invalidateQueries({ queryKey: ["/api/chat", vendor.id] });
+          queryClient.invalidateQueries({ queryKey: ["/api/chat", effectiveVendorId] });
           
           // Show toast notification for new message
           toast({
