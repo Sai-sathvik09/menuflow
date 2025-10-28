@@ -6,6 +6,7 @@ import {
   orders,
   chatMessages,
   fileUploads,
+  bills,
   type Vendor,
   type InsertVendor,
   type MenuItem,
@@ -18,6 +19,8 @@ import {
   type InsertChatMessage,
   type FileUpload,
   type InsertFileUpload,
+  type Bill,
+  type InsertBill,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
@@ -28,6 +31,8 @@ export interface IStorage {
   getVendor(id: string): Promise<Vendor | undefined>;
   getVendorByEmail(email: string): Promise<Vendor | undefined>;
   createVendor(vendor: InsertVendor): Promise<Vendor>;
+  getWaiterForOwner(ownerId: string): Promise<Vendor | undefined>;
+  updateVendorPassword(id: string, hashedPassword: string): Promise<Vendor | undefined>;
 
   // Menu Items
   getMenuItems(vendorId: string): Promise<MenuItem[]>;
@@ -62,6 +67,10 @@ export interface IStorage {
   createFileUpload(upload: InsertFileUpload): Promise<FileUpload>;
   updateFileUploadStatus(id: string, status: FileUpload["processingStatus"], itemsImported?: number, errorMessage?: string): Promise<FileUpload | undefined>;
   bulkCreateMenuItems(items: InsertMenuItem[]): Promise<MenuItem[]>;
+
+  // Bills
+  createBill(bill: InsertBill): Promise<Bill>;
+  getBillByOrderId(orderId: string): Promise<Bill | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -82,6 +91,23 @@ export class DatabaseStorage implements IStorage {
       .values(insertVendor)
       .returning();
     return vendor;
+  }
+
+  async getWaiterForOwner(ownerId: string): Promise<Vendor | undefined> {
+    const [waiter] = await db
+      .select()
+      .from(vendors)
+      .where(and(eq(vendors.ownerId, ownerId), eq(vendors.role, "waiter")));
+    return waiter || undefined;
+  }
+
+  async updateVendorPassword(id: string, hashedPassword: string): Promise<Vendor | undefined> {
+    const [updated] = await db
+      .update(vendors)
+      .set({ password: hashedPassword })
+      .where(eq(vendors.id, id))
+      .returning();
+    return updated || undefined;
   }
 
   // Menu Items
@@ -313,6 +339,23 @@ export class DatabaseStorage implements IStorage {
       .values(items)
       .returning();
     return createdItems;
+  }
+
+  // Bills
+  async createBill(bill: InsertBill): Promise<Bill> {
+    const [newBill] = await db
+      .insert(bills)
+      .values(bill)
+      .returning();
+    return newBill;
+  }
+
+  async getBillByOrderId(orderId: string): Promise<Bill | undefined> {
+    const [bill] = await db
+      .select()
+      .from(bills)
+      .where(eq(bills.orderId, orderId));
+    return bill || undefined;
   }
 }
 

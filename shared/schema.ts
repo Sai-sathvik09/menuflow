@@ -13,6 +13,8 @@ export const vendors = pgTable("vendors", {
   businessType: text("business_type").notNull().default("restaurant"), // restaurant, streetFood, cafe, bakery, quickService
   subscriptionTier: text("subscription_tier").notNull().default("starter"), // starter, pro, elite
   tableLimit: integer("table_limit").default(0), // 0 for starter, 10/25/unlimited for pro tiers
+  role: text("role").notNull().default("owner"), // owner, waiter
+  ownerId: varchar("owner_id"), // links waiter to owner account
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -82,11 +84,31 @@ export const orders = pgTable("orders", {
   completedAt: timestamp("completed_at"),
 });
 
+// Bills table (generated when order is completed)
+export const bills = pgTable("bills", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }).unique(),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  orderNumber: integer("order_number").notNull(),
+  tableNumber: text("table_number"),
+  items: json("items").notNull().$type<Array<{ name: string; price: string; quantity: number }>>(),
+  totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
+  customerName: text("customer_name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Relations
-export const vendorsRelations = relations(vendors, ({ many }) => ({
+export const vendorsRelations = relations(vendors, ({ many, one }) => ({
   menuItems: many(menuItems),
   tables: many(tables),
   orders: many(orders),
+  bills: many(bills),
+  waiters: many(vendors, { relationName: "ownerToWaiters" }),
+  owner: one(vendors, {
+    fields: [vendors.ownerId],
+    references: [vendors.id],
+    relationName: "ownerToWaiters"
+  }),
 }));
 
 export const menuItemsRelations = relations(menuItems, ({ one }) => ({
@@ -114,6 +136,21 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     references: [tables.id],
   }),
   chatMessages: many(chatMessages),
+  bill: one(bills, {
+    fields: [orders.id],
+    references: [bills.orderId],
+  }),
+}));
+
+export const billsRelations = relations(bills, ({ one }) => ({
+  vendor: one(vendors, {
+    fields: [bills.vendorId],
+    references: [vendors.id],
+  }),
+  order: one(orders, {
+    fields: [bills.orderId],
+    references: [orders.id],
+  }),
 }));
 
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
@@ -197,10 +234,29 @@ export const insertFileUploadSchema = createInsertSchema(fileUploads).omit({
   fileUrl: z.string().url(),
 });
 
+export const insertBillSchema = createInsertSchema(bills).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  orderNumber: z.number().min(1),
+  items: z.array(z.object({
+    name: z.string(),
+    price: z.string(),
+    quantity: z.number().min(1),
+  })),
+  totalAmount: z.string().regex(/^\d+(\.\d{1,2})?$/),
+});
+
 // Login schema
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+});
+
+// Password change schema
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(6),
 });
 
 // Types
@@ -216,7 +272,10 @@ export type InsertChatMessage = z.infer<typeof insertChatMessageSchema>;
 export type ChatMessage = typeof chatMessages.$inferSelect;
 export type InsertFileUpload = z.infer<typeof insertFileUploadSchema>;
 export type FileUpload = typeof fileUploads.$inferSelect;
+export type InsertBill = z.infer<typeof insertBillSchema>;
+export type Bill = typeof bills.$inferSelect;
 export type LoginCredentials = z.infer<typeof loginSchema>;
+export type ChangePassword = z.infer<typeof changePasswordSchema>;
 
 // Subscription tier types
 export type SubscriptionTier = "starter" | "pro" | "elite";
@@ -224,6 +283,7 @@ export type OrderStatus = "new" | "preparing" | "ready" | "completed";
 export type SenderType = "customer" | "vendor";
 export type MessageType = "text" | "order_inquiry" | "menu_question" | "feedback" | "support";
 export type BusinessType = "restaurant" | "streetFood" | "cafe" | "bakery" | "quickService";
+export type VendorRole = "owner" | "waiter";
 
 // Predefined categories for different vendor types
 export const VENDOR_CATEGORIES = {
