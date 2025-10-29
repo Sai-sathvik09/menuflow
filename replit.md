@@ -89,11 +89,22 @@ The current authentication system is NOT production-ready and has critical secur
 - Add CSRF protection for state-changing operations
 - Implement proper role-based authorization checking authenticated user's role
 
-**Kitchen Staff Account Creation:**
-- Owners can create kitchen staff accounts from the dashboard
-- Backend POST /api/auth/kitchen route with storage method getKitchenStaffForOwner
-- Dashboard UI includes form with email/password inputs and list of existing kitchen staff
-- Kitchen staff login with their credentials and see limited interface (order status management only)
+**Staff Account Management:**
+- Owners can create waiter and kitchen staff accounts from the dashboard
+- **Tier Restrictions:**
+  - Starter: No staff accounts allowed
+  - Pro: Maximum 2 waiters + 2 kitchen staff
+  - Elite: Unlimited staff accounts
+- **Waiter Accounts:**
+  - Backend: POST /api/auth/waiters and GET /api/auth/waiters/:ownerId
+  - Storage method: getWaitersForOwner
+  - Dashboard UI includes form with email/password inputs and list of existing waiters
+  - Waiters login and see limited interface (menu viewing, table viewing, order creation only)
+- **Kitchen Staff Accounts:**
+  - Backend: POST /api/auth/kitchen and GET /api/auth/kitchen/:ownerId
+  - Storage method: getKitchenStaffForOwner
+  - Dashboard UI includes form with email/password inputs and list of existing kitchen staff
+  - Kitchen staff login and see limited interface (order status management only)
 
 **Order Management System:**
 - Sequential order numbering per vendor for easy calling out
