@@ -32,6 +32,7 @@ export interface IStorage {
   getVendorByEmail(email: string): Promise<Vendor | undefined>;
   createVendor(vendor: InsertVendor): Promise<Vendor>;
   getWaiterForOwner(ownerId: string): Promise<Vendor | undefined>;
+  getWaitersForOwner(ownerId: string): Promise<Vendor[]>;
   getKitchenStaffForOwner(ownerId: string): Promise<Vendor[]>;
   updateVendorPassword(id: string, hashedPassword: string): Promise<Vendor | undefined>;
 
@@ -101,6 +102,14 @@ export class DatabaseStorage implements IStorage {
       .from(vendors)
       .where(and(eq(vendors.ownerId, ownerId), eq(vendors.role, "waiter")));
     return waiter || undefined;
+  }
+
+  async getWaitersForOwner(ownerId: string): Promise<Vendor[]> {
+    const waiters = await db
+      .select()
+      .from(vendors)
+      .where(and(eq(vendors.ownerId, ownerId), eq(vendors.role, "waiter")));
+    return waiters;
   }
 
   async getKitchenStaffForOwner(ownerId: string): Promise<Vendor[]> {

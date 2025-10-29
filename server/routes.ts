@@ -225,7 +225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create kitchen staff account (owner only)
+  // Create kitchen staff account (owner only, tier-restricted)
   app.post("/api/auth/kitchen", async (req, res) => {
     try {
       const { ownerId, email, password } = req.body;
@@ -238,6 +238,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const owner = await storage.getVendor(ownerId);
       if (!owner || owner.role !== "owner") {
         return res.status(403).json({ message: "Only owners can create kitchen staff accounts" });
+      }
+
+      // Check tier restrictions
+      if (owner.subscriptionTier === "starter") {
+        return res.status(403).json({ message: "Kitchen staff accounts are only available on Pro and Elite plans" });
+      }
+
+      // Check kitchen staff count limits for Pro tier
+      if (owner.subscriptionTier === "pro") {
+        const existingKitchen = await storage.getKitchenStaffForOwner(ownerId);
+        if (existingKitchen.length >= 2) {
+          return res.status(403).json({ message: "Pro plan allows maximum 2 kitchen staff accounts. Upgrade to Elite for unlimited." });
+        }
       }
 
       // Check if email already exists
@@ -276,6 +289,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(kitchenStaff);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch kitchen staff" });
+    }
+  });
+
+  // Create waiter account (owner only, tier-restricted)
+  app.post("/api/auth/waiters", async (req, res) => {
+    try {
+      const { ownerId, email, password } = req.body;
+
+      if (!ownerId || !email || !password) {
+        return res.status(400).json({ message: "ownerId, email, and password are required" });
+      }
+
+      // Verify owner exists
+      const owner = await storage.getVendor(ownerId);
+      if (!owner || owner.role !== "owner") {
+        return res.status(403).json({ message: "Only owners can create waiter accounts" });
+      }
+
+      // Check tier restrictions
+      if (owner.subscriptionTier === "starter") {
+        return res.status(403).json({ message: "Waiter accounts are only available on Pro and Elite plans" });
+      }
+
+      // Check waiter count limits for Pro tier
+      if (owner.subscriptionTier === "pro") {
+        const existingWaiters = await storage.getWaitersForOwner(ownerId);
+        if (existingWaiters.length >= 2) {
+          return res.status(403).json({ message: "Pro plan allows maximum 2 waiter accounts. Upgrade to Elite for unlimited." });
+        }
+      }
+
+      // Check if email already exists
+      const existing = await storage.getVendorByEmail(email);
+      if (existing) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Create waiter account
+      const waiter = await storage.createVendor({
+        email,
+        password: hashedPassword,
+        businessName: `${owner.businessName} - Waiter`,
+        businessType: owner.businessType as any,
+        subscriptionTier: owner.subscriptionTier as any,
+        tableLimit: owner.tableLimit,
+        role: "waiter",
+        ownerId: owner.id,
+      });
+
+      // Don't send password back
+      const { password: _, ...waiterData } = waiter;
+      res.json(waiterData);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create waiter account" });
+    }
+  });
+
+  // Get waiters for owner
+  app.get("/api/auth/waiters/:ownerId", async (req, res) => {
+    try {
+      const waiters = await storage.getWaitersForOwner(req.params.ownerId);
+      res.json(waiters);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch waiters" });
     }
   });
 
