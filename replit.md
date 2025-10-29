@@ -2,7 +2,7 @@
 
 ## Overview
 
-MenuFlow is a QR code-based digital menu platform designed for restaurants and street vendors. The system enables vendors to create customizable digital menus that customers can access by scanning QR codes, while providing owners with real-time order management, analytics, and business insights. The platform features a dual-interface architecture serving both customer-facing menu experiences and vendor management portals.
+MenuFlow is a QR code-based digital menu platform designed for restaurants and street vendors. The system enables vendors to create customizable digital menus that customers can access by scanning QR codes, while providing owners with real-time order management, analytics, and business insights. The platform features a three-role architecture (owner, waiter, kitchen) with role-specific interfaces and smart order merging for table-based service.
 
 ## User Preferences
 
@@ -57,6 +57,25 @@ Preferred communication style: Simple, everyday language.
 - Client-side auth context provides vendor state across application
 - Protected routes check vendor presence before rendering
 
+**Three-Role System:**
+- **Owner Role:** Full access to all features including menu management, table management, order management, analytics, waiter/kitchen staff creation
+- **Waiter Role:** Limited to menu viewing, table viewing, and order creation. Uses owner's vendorId for data access (effectiveVendorId pattern)
+- **Kitchen Role:** Limited to viewing and updating order statuses only. Cannot create orders or access other features
+- Role-based UI: Sidebar navigation dynamically shows only allowed features per role
+- Order creation workflow: Waiters see only Create Order button; owners see full order management interface with Create Order button; kitchen staff see only order status cards
+
+**Order Merging System:**
+- When creating an order with a tableId, system checks for existing active orders on that table
+- Active orders are those with status: new, preparing, or ready (excludes completed/archived)
+- If active order exists, new items are merged into it:
+  - Duplicate items: quantities are combined
+  - New items: added to order
+  - Total amount recalculated
+  - Existing order updated instead of creating duplicate
+  - Broadcasts ORDER_UPDATE WebSocket event
+- If no active order exists, creates new order normally and broadcasts NEW_ORDER
+- Prevents duplicate orders on same table, streamlines kitchen workflow
+
 **⚠️ CRITICAL SECURITY LIMITATION:**
 The current authentication system is NOT production-ready and has critical security flaws:
 - vendorId is stored in client localStorage and passed in API requests (can be spoofed)
@@ -70,11 +89,18 @@ The current authentication system is NOT production-ready and has critical secur
 - Add CSRF protection for state-changing operations
 - Implement proper role-based authorization checking authenticated user's role
 
+**Kitchen Staff Account Creation:**
+- Owners can create kitchen staff accounts from the dashboard
+- Backend POST /api/auth/kitchen route with storage method getKitchenStaffForOwner
+- Dashboard UI includes form with email/password inputs and list of existing kitchen staff
+- Kitchen staff login with their credentials and see limited interface (order status management only)
+
 **Order Management System:**
 - Sequential order numbering per vendor for easy calling out
 - Four-state workflow: new → preparing → ready → completed
 - Real-time WebSocket broadcasts to vendor connections on new orders
-- Order items stored as JSON with denormalized menu item data
+- Order items stored as JSON with denormalized menu item data (prevents issues if menu changes)
+- Smart order merging prevents duplicate orders on same table
 
 ### Data Architecture
 
