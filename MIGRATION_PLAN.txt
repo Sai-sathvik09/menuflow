@@ -1,0 +1,1029 @@
+================================================================================
+              MENUFLOW - PRODUCTION MIGRATION PLAN
+        Replit → GitHub + Cursor + Supabase + Vercel + Custom Domain
+================================================================================
+
+OVERVIEW
+--------
+This document provides a complete, step-by-step migration plan to deploy 
+MenuFlow to production using industry-standard tools while ensuring zero 
+downtime and maintaining data integrity.
+
+CURRENT STACK → TARGET STACK
+-----------------------------
+Development: Replit          → Cursor IDE (local development)
+Database:    Neon PostgreSQL → Supabase PostgreSQL + Auth + Realtime
+Backend:     Express Server  → Vercel Serverless Functions
+Frontend:    Vite SPA        → Vercel Static Hosting
+Auth:        localStorage    → Supabase Auth (JWT + RLS)
+Realtime:    Custom WebSocket → Supabase Realtime Channels
+Domain:      replit.app      → Your Custom Domain (yourdomain.com)
+SSL:         Automatic       → Vercel SSL (Let's Encrypt)
+
+================================================================================
+PHASE 1: PREPARATION & SETUP (Week 1)
+================================================================================
+
+STEP 1.1: Initialize Supabase Project
+--------------------------------------
+1. Go to https://supabase.com and create account
+2. Create new project:
+   - Project name: menuflow-production
+   - Database password: [SAVE THIS SECURELY]
+   - Region: Choose closest to your users
+   - Pricing: Start with Free tier, upgrade to Pro for production
+
+3. Save these credentials (found in Project Settings → API):
+   - Project URL: https://xxxxx.supabase.co
+   - Anon Key: [PUBLIC KEY]
+   - Service Role Key: [SECRET - DO NOT EXPOSE]
+   - Database Connection String (PostgreSQL)
+
+4. Enable required Supabase features:
+   - Authentication: Enable Email/Password provider
+   - Realtime: Enable for your database
+   - Database: Note connection pooler settings
+
+STEP 1.2: Setup GitHub Repository
+----------------------------------
+1. Create new GitHub repository:
+   - Name: menuflow
+   - Privacy: Private (recommended for production)
+   - Initialize: Without README (we have existing code)
+
+2. Push existing code to GitHub:
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial commit: MenuFlow project"
+   git branch -M main
+   git remote add origin https://github.com/YOUR_USERNAME/menuflow.git
+   git push -u origin main
+   ```
+
+3. Setup branch protection rules:
+   - Require pull request reviews before merging
+   - Require status checks to pass
+   - Enable branch protection for 'main'
+
+STEP 1.3: Setup Cursor IDE
+---------------------------
+1. Download Cursor: https://cursor.sh
+2. Clone your repository:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/menuflow.git
+   cd menuflow
+   ```
+
+3. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+4. Install Supabase CLI globally:
+   ```bash
+   npm install -g supabase
+   ```
+
+STEP 1.4: Create Vercel Account
+--------------------------------
+1. Go to https://vercel.com and sign up with GitHub
+2. Connect your GitHub account
+3. Import menuflow repository (don't deploy yet)
+4. Note your Vercel project settings
+
+================================================================================
+PHASE 2: DATABASE MIGRATION (Week 1-2)
+================================================================================
+
+STEP 2.1: Export Current Database Schema
+-----------------------------------------
+Your schema is already defined in shared/schema.ts using Drizzle ORM.
+This makes migration easier!
+
+1. Verify your current schema:
+   - Vendors table
+   - Menu Items table
+   - Tables table
+   - Orders table
+   - Chat Messages table
+   - File Uploads table
+   - Bills table
+
+STEP 2.2: Configure Supabase Database Connection
+-------------------------------------------------
+1. Create new file: server/db-supabase.ts
+
+```typescript
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+
+// Use Supabase connection string with pooling
+const connectionString = process.env.SUPABASE_DATABASE_URL!;
+
+// Connection pooling configuration
+const client = postgres(connectionString, {
+  max: 10,
+  idle_timeout: 20,
+  connect_timeout: 10,
+});
+
+export const db = drizzle(client);
+```
+
+2. Update drizzle.config.ts for Supabase:
+
+```typescript
+import type { Config } from "drizzle-kit";
+
+export default {
+  schema: "./shared/schema.ts",
+  out: "./drizzle",
+  driver: "pg",
+  dbCredentials: {
+    connectionString: process.env.SUPABASE_DATABASE_URL!,
+  },
+} satisfies Config;
+```
+
+STEP 2.3: Create Tables in Supabase
+------------------------------------
+1. Set environment variable:
+   ```bash
+   export SUPABASE_DATABASE_URL="your-supabase-connection-string"
+   ```
+
+2. Push schema to Supabase:
+   ```bash
+   npm run db:push
+   ```
+
+3. Verify tables in Supabase Dashboard:
+   - Go to Table Editor
+   - Confirm all 7 tables exist
+   - Check indexes and constraints
+
+STEP 2.4: Enable Row Level Security (RLS)
+------------------------------------------
+Critical for production security!
+
+Run these SQL commands in Supabase SQL Editor:
+
+```sql
+-- Enable RLS on all tables
+ALTER TABLE vendors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE menu_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE file_uploads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bills ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only access their own vendor data
+CREATE POLICY "Vendors can view own data" ON vendors
+  FOR SELECT USING (auth.uid()::text = id);
+
+CREATE POLICY "Vendors can update own data" ON vendors
+  FOR UPDATE USING (auth.uid()::text = id);
+
+-- Policy: Menu items belong to vendor
+CREATE POLICY "Vendors can manage own menu" ON menu_items
+  FOR ALL USING (
+    vendor_id IN (
+      SELECT id FROM vendors WHERE auth.uid()::text = id 
+      OR auth.uid()::text = owner_id
+    )
+  );
+
+-- Policy: Tables belong to vendor
+CREATE POLICY "Vendors can manage own tables" ON tables
+  FOR ALL USING (
+    vendor_id IN (
+      SELECT id FROM vendors WHERE auth.uid()::text = id 
+      OR auth.uid()::text = owner_id
+    )
+  );
+
+-- Policy: Orders belong to vendor
+CREATE POLICY "Vendors can manage own orders" ON orders
+  FOR ALL USING (
+    vendor_id IN (
+      SELECT id FROM vendors WHERE auth.uid()::text = id 
+      OR auth.uid()::text = owner_id
+    )
+  );
+
+-- Similar policies for other tables...
+```
+
+STEP 2.5: Migrate Existing Data
+--------------------------------
+1. Export data from Neon:
+   ```bash
+   # Export each table
+   pg_dump -h your-neon-host -U user -d database -t vendors --data-only > vendors.sql
+   pg_dump -h your-neon-host -U user -d database -t menu_items --data-only > menu_items.sql
+   # ... repeat for all tables
+   ```
+
+2. Import to Supabase (using Supabase SQL Editor or CLI):
+   ```bash
+   psql "your-supabase-connection-string" < vendors.sql
+   psql "your-supabase-connection-string" < menu_items.sql
+   # ... repeat for all tables
+   ```
+
+3. Verify data integrity:
+   - Check row counts match
+   - Verify foreign key relationships
+   - Test sample queries
+
+================================================================================
+PHASE 3: AUTHENTICATION MIGRATION (Week 2)
+================================================================================
+
+STEP 3.1: Setup Supabase Auth
+------------------------------
+1. In Supabase Dashboard → Authentication → Providers:
+   - Enable Email provider
+   - Configure Email templates
+   - Set Site URL: https://yourdomain.com
+   - Add redirect URLs for development and production
+
+2. Create auth_users mapping table in Supabase:
+
+```sql
+-- Link Supabase Auth users to vendor records
+CREATE TABLE auth_vendor_mapping (
+  auth_user_id UUID PRIMARY KEY REFERENCES auth.users(id),
+  vendor_id UUID NOT NULL REFERENCES vendors(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+STEP 3.2: Install Supabase Client Libraries
+--------------------------------------------
+```bash
+npm install @supabase/supabase-js @supabase/auth-helpers-nextjs
+```
+
+STEP 3.3: Create Supabase Client Configuration
+-----------------------------------------------
+Create file: client/src/lib/supabase.ts
+
+```typescript
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL!;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY!;
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
+```
+
+STEP 3.4: Replace Auth Context
+-------------------------------
+Update client/src/lib/auth-context.tsx:
+
+```typescript
+import { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from './supabase';
+import { type Vendor } from '@shared/schema';
+
+interface AuthContextType {
+  vendor: Vendor | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, vendorData: any) => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [vendor, setVendor] = useState<Vendor | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        fetchVendorData(session.user.id);
+      } else {
+        setLoading(false);
+      }
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (session?.user) {
+          await fetchVendorData(session.user.id);
+        } else {
+          setVendor(null);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const fetchVendorData = async (authUserId: string) => {
+    try {
+      // Get vendor ID from mapping
+      const { data: mapping } = await supabase
+        .from('auth_vendor_mapping')
+        .select('vendor_id')
+        .eq('auth_user_id', authUserId)
+        .single();
+
+      if (mapping) {
+        // Fetch vendor data
+        const { data: vendorData } = await supabase
+          .from('vendors')
+          .select('*')
+          .eq('id', mapping.vendor_id)
+          .single();
+
+        setVendor(vendorData);
+      }
+    } catch (error) {
+      console.error('Error fetching vendor:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (error) throw error;
+  };
+
+  const signUp = async (email: string, password: string, vendorData: any) => {
+    // Create auth user
+    const { data: { user }, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+    });
+
+    if (signUpError) throw signUpError;
+    if (!user) throw new Error('User creation failed');
+
+    // Create vendor record via API
+    const response = await fetch('/api/auth/register-vendor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ authUserId: user.id, ...vendorData }),
+    });
+
+    if (!response.ok) throw new Error('Vendor creation failed');
+  };
+
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+  };
+
+  return (
+    <AuthContext.Provider value={{ vendor, loading, signIn, signUp, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
+};
+```
+
+STEP 3.5: Update Backend Authentication Middleware
+---------------------------------------------------
+Create file: server/middleware/auth.ts
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_KEY! // Use service key for server
+);
+
+export async function authenticateRequest(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const token = authHeader.substring(7);
+
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error || !user) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+
+    // Attach user to request
+    (req as any).user = user;
+    next();
+  } catch (error) {
+    res.status(401).json({ message: 'Authentication failed' });
+  }
+}
+```
+
+================================================================================
+PHASE 4: SERVERLESS ARCHITECTURE (Week 2-3)
+================================================================================
+
+STEP 4.1: Restructure for Vercel Functions
+-------------------------------------------
+Vercel uses serverless functions in /api directory.
+
+1. Create new directory structure:
+   ```
+   /api
+     /auth
+       login.ts
+       register.ts
+       logout.ts
+     /menu
+       [id].ts
+       index.ts
+     /orders
+       [id].ts
+       index.ts
+     /tables
+       index.ts
+     ... (one file per endpoint group)
+   ```
+
+2. Example Vercel function (api/menu/index.ts):
+
+```typescript
+import { VercelRequest, VercelResponse } from '@vercel/node';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import { menuItems } from '@shared/schema';
+import { eq } from 'drizzle-orm';
+
+// Lazy connection
+let db: any;
+
+function getDb() {
+  if (!db) {
+    const client = postgres(process.env.SUPABASE_DATABASE_URL!);
+    db = drizzle(client);
+  }
+  return db;
+}
+
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
+  const database = getDb();
+  
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method === 'GET') {
+    const { vendorId } = req.query;
+    const items = await database
+      .select()
+      .from(menuItems)
+      .where(eq(menuItems.vendorId, vendorId as string));
+    
+    return res.status(200).json(items);
+  }
+
+  if (req.method === 'POST') {
+    // Verify authentication here
+    const data = req.body;
+    const [item] = await database
+      .insert(menuItems)
+      .values(data)
+      .returning();
+    
+    return res.status(201).json(item);
+  }
+
+  res.status(405).json({ message: 'Method not allowed' });
+}
+```
+
+STEP 4.2: Update Vercel Configuration
+--------------------------------------
+Create vercel.json in project root:
+
+```json
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "client/**",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist/public"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/client/$1"
+    }
+  ],
+  "env": {
+    "SUPABASE_URL": "@supabase-url",
+    "SUPABASE_ANON_KEY": "@supabase-anon-key",
+    "SUPABASE_DATABASE_URL": "@supabase-db-url"
+  }
+}
+```
+
+STEP 4.3: Update package.json Scripts
+--------------------------------------
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "vercel-build": "npm run build",
+    "preview": "vite preview"
+  }
+}
+```
+
+================================================================================
+PHASE 5: REALTIME MIGRATION (Week 3)
+================================================================================
+
+STEP 5.1: Replace WebSocket with Supabase Realtime
+---------------------------------------------------
+Remove custom WebSocket server code from server/index.ts
+
+1. Enable Realtime in Supabase:
+   - Go to Database → Replication
+   - Enable replication for 'orders' table
+   - Enable replication for 'chat_messages' table
+
+2. Update frontend WebSocket hook (client/src/lib/use-websocket.tsx):
+
+```typescript
+import { useEffect } from 'react';
+import { supabase } from './supabase';
+import { useQueryClient } from '@tanstack/react-query';
+import { useAuth } from './auth-context';
+import { useToast } from '@/hooks/use-toast';
+
+export function useWebSocket() {
+  const { vendor } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    if (!vendor?.id) return;
+
+    // Subscribe to orders changes
+    const ordersChannel = supabase
+      .channel(`orders:${vendor.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'orders',
+          filter: `vendor_id=eq.${vendor.id}`,
+        },
+        (payload) => {
+          // Invalidate orders query
+          queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+          
+          // Show toast
+          toast({
+            title: 'New Order!',
+            description: `Order #${payload.new.order_number} received`,
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'orders',
+          filter: `vendor_id=eq.${vendor.id}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['/api/orders'] });
+        }
+      )
+      .subscribe();
+
+    // Cleanup on unmount
+    return () => {
+      supabase.removeChannel(ordersChannel);
+    };
+  }, [vendor?.id, queryClient, toast]);
+}
+```
+
+================================================================================
+PHASE 6: ENVIRONMENT CONFIGURATION (Week 3)
+================================================================================
+
+STEP 6.1: Environment Variables Setup
+--------------------------------------
+1. Create .env.local for local development:
+
+```bash
+# Supabase
+VITE_SUPABASE_URL=https://xxxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_KEY=your-service-key
+SUPABASE_DATABASE_URL=postgresql://...
+
+# App
+VITE_APP_URL=http://localhost:5173
+NODE_ENV=development
+```
+
+2. Configure Vercel environment variables:
+   - Go to Vercel Dashboard → Project Settings → Environment Variables
+   - Add all variables above
+   - Set for Production, Preview, and Development environments
+
+3. Add .env.local to .gitignore:
+```
+.env.local
+.env*.local
+```
+
+STEP 6.2: Update Frontend API Calls
+------------------------------------
+Create client/src/lib/api.ts:
+
+```typescript
+const API_BASE_URL = import.meta.env.VITE_APP_URL || '';
+
+export async function apiRequest(
+  method: string,
+  endpoint: string,
+  data?: any
+) {
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session?.access_token}`,
+    },
+    body: data ? JSON.stringify(data) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.statusText}`);
+  }
+
+  return response;
+}
+```
+
+================================================================================
+PHASE 7: TESTING & VALIDATION (Week 4)
+================================================================================
+
+STEP 7.1: Local Testing
+------------------------
+1. Test with Supabase locally:
+   ```bash
+   npm run dev
+   ```
+
+2. Verify all features:
+   - ✓ Registration and login with Supabase Auth
+   - ✓ Menu CRUD operations
+   - ✓ Table management
+   - ✓ Order creation and updates
+   - ✓ Realtime notifications
+   - ✓ Chat functionality
+   - ✓ File uploads
+   - ✓ Role-based access (Owner/Waiter/Kitchen)
+   - ✓ Tier restrictions
+
+STEP 7.2: Staging Deployment
+-----------------------------
+1. Deploy to Vercel staging:
+   ```bash
+   vercel deploy
+   ```
+
+2. Test staging URL thoroughly
+3. Run load tests
+4. Check Vercel logs for errors
+5. Monitor Supabase dashboard for performance
+
+STEP 7.3: Create Test Data
+---------------------------
+1. Create test vendors for each tier (Starter, Pro, Elite)
+2. Create test menu items
+3. Create test orders
+4. Test all user roles
+5. Test edge cases:
+   - Maximum table limits
+   - Staff account limits
+   - Order merging logic
+   - Concurrent updates
+
+================================================================================
+PHASE 8: CUSTOM DOMAIN SETUP (Week 4)
+================================================================================
+
+STEP 8.1: Purchase Domain
+--------------------------
+1. Buy domain from registrar (Namecheap, GoDaddy, Google Domains)
+2. Note nameservers
+
+STEP 8.2: Configure DNS
+------------------------
+1. In Vercel Dashboard → Project → Settings → Domains:
+   - Click "Add Domain"
+   - Enter: yourdomain.com
+   - Vercel will provide DNS records
+
+2. Add DNS records at your registrar:
+   ```
+   Type: A
+   Name: @
+   Value: 76.76.21.21
+
+   Type: CNAME
+   Name: www
+   Value: cname.vercel-dns.com
+   ```
+
+3. Wait for DNS propagation (5 minutes to 48 hours)
+
+STEP 8.3: Configure SSL
+------------------------
+Vercel automatically provisions SSL certificates via Let's Encrypt.
+No action needed - it's automatic!
+
+STEP 8.4: Update Supabase Redirect URLs
+----------------------------------------
+In Supabase Dashboard → Authentication → URL Configuration:
+- Site URL: https://yourdomain.com
+- Add Redirect URLs:
+  - https://yourdomain.com
+  - https://yourdomain.com/auth/callback
+  - https://www.yourdomain.com
+
+================================================================================
+PHASE 9: PRODUCTION DEPLOYMENT (Week 5)
+================================================================================
+
+STEP 9.1: Pre-Deployment Checklist
+-----------------------------------
+✓ All environment variables set in Vercel
+✓ Supabase RLS policies tested and verified
+✓ Database backup created
+✓ DNS records configured
+✓ SSL certificate verified
+✓ All tests passing in staging
+✓ Load testing completed
+✓ Error monitoring setup (Sentry recommended)
+✓ Analytics setup (Google Analytics, Posthog, etc.)
+
+STEP 9.2: Deploy to Production
+-------------------------------
+1. Merge to main branch:
+   ```bash
+   git checkout main
+   git merge develop
+   git push origin main
+   ```
+
+2. Vercel auto-deploys on push to main
+
+3. Monitor deployment:
+   - Watch Vercel build logs
+   - Check for build errors
+   - Verify deployment success
+
+4. Test production URL:
+   - Visit https://yourdomain.com
+   - Test all critical paths
+   - Verify SSL certificate
+
+STEP 9.3: Data Migration Cutover
+---------------------------------
+If migrating existing users:
+
+1. Schedule maintenance window (announce to users)
+2. Enable read-only mode on Replit app
+3. Export final data snapshot from Neon
+4. Import to Supabase
+5. Verify data integrity
+6. Update DNS to point to Vercel
+7. Monitor for errors
+8. Disable Replit app after 24 hours
+
+STEP 9.4: Post-Deployment Monitoring
+-------------------------------------
+1. Monitor Vercel logs for errors
+2. Check Supabase dashboard for performance
+3. Monitor user feedback
+4. Track error rates
+5. Monitor response times
+6. Set up alerts for:
+   - High error rates
+   - Slow response times
+   - Database connection issues
+   - Authentication failures
+
+================================================================================
+PHASE 10: ROLLBACK PLAN (CRITICAL)
+================================================================================
+
+STEP 10.1: Immediate Rollback Procedure
+----------------------------------------
+If critical issues occur:
+
+1. Revert DNS to Replit:
+   ```
+   - Update A record to point back to Replit IP
+   - Wait for DNS propagation
+   ```
+
+2. Keep Neon database running for 1 week after migration
+
+3. Feature flags in code:
+   ```typescript
+   const USE_SUPABASE = import.meta.env.VITE_USE_SUPABASE === 'true';
+   
+   const db = USE_SUPABASE ? supabaseDb : neonDb;
+   ```
+
+STEP 10.2: Backup Strategy
+---------------------------
+1. Daily automated backups in Supabase (enable in project settings)
+2. Weekly manual exports
+3. Keep last 30 days of backups
+4. Test restore procedure monthly
+
+================================================================================
+PRODUCTION BEST PRACTICES
+================================================================================
+
+SECURITY
+--------
+✓ Enable Supabase RLS on all tables
+✓ Use environment variables for all secrets
+✓ Implement rate limiting on API routes
+✓ Enable CORS only for your domain
+✓ Use HTTPS everywhere
+✓ Implement CSRF protection
+✓ Regular security audits
+✓ Keep dependencies updated
+
+PERFORMANCE
+-----------
+✓ Enable Vercel Edge caching
+✓ Use CDN for static assets
+✓ Implement lazy loading
+✓ Optimize images (use Vercel Image Optimization)
+✓ Monitor bundle size
+✓ Use database indexes
+✓ Implement pagination for large lists
+✓ Cache frequently accessed data
+
+MONITORING
+----------
+✓ Setup error tracking (Sentry)
+✓ Setup analytics (PostHog, Google Analytics)
+✓ Monitor Vercel Logs
+✓ Monitor Supabase Performance
+✓ Setup uptime monitoring (UptimeRobot, Better Uptime)
+✓ Track Core Web Vitals
+✓ Monitor API response times
+
+COST OPTIMIZATION
+-----------------
+Supabase Free Tier Limits:
+- 500MB database
+- 1GB file storage
+- 2GB bandwidth
+- Upgrade to Pro ($25/mo) for production
+
+Vercel Free Tier Limits:
+- 100GB bandwidth
+- Unlimited deployments
+- Upgrade to Pro ($20/mo) for teams
+
+Estimated Monthly Cost (Production):
+- Supabase Pro: $25
+- Vercel Pro: $20
+- Domain: $10-15/year
+- Total: ~$45-50/month
+
+================================================================================
+MIGRATION TIMELINE SUMMARY
+================================================================================
+
+Week 1: Preparation & Database Setup
+  - Setup Supabase, GitHub, Vercel accounts
+  - Create database schema
+  - Export/import data
+
+Week 2: Authentication & Backend
+  - Implement Supabase Auth
+  - Refactor to serverless functions
+  - Update API endpoints
+
+Week 3: Realtime & Configuration
+  - Migrate WebSocket to Supabase Realtime
+  - Configure environment variables
+  - Frontend updates
+
+Week 4: Testing & Domain
+  - Comprehensive testing
+  - Staging deployment
+  - Domain configuration
+
+Week 5: Production Launch
+  - Final data migration
+  - Production deployment
+  - Monitoring and optimization
+
+================================================================================
+ADDITIONAL RESOURCES
+================================================================================
+
+Documentation:
+- Supabase: https://supabase.com/docs
+- Vercel: https://vercel.com/docs
+- Drizzle ORM: https://orm.drizzle.team
+- Cursor IDE: https://cursor.sh/docs
+
+Support Communities:
+- Supabase Discord: https://discord.supabase.com
+- Vercel Discord: https://vercel.com/discord
+
+Recommended Tools:
+- Error Tracking: Sentry.io
+- Analytics: PostHog, Google Analytics
+- Uptime Monitoring: Better Uptime
+- Performance: Vercel Analytics
+
+================================================================================
+CONCLUSION
+================================================================================
+
+This migration plan provides a comprehensive, step-by-step guide to move your
+MenuFlow application from Replit to a production-ready stack.
+
+Key Success Factors:
+✓ Follow phases sequentially
+✓ Test thoroughly at each stage
+✓ Maintain backups throughout
+✓ Monitor closely post-launch
+✓ Have rollback plan ready
+
+Your application will be:
+✓ Production-ready with proper authentication
+✓ Scalable with serverless architecture
+✓ Secure with RLS and proper auth
+✓ Fast with edge deployment
+✓ Reliable with automated backups
+✓ Professional with custom domain and SSL
+
+Good luck with your migration! 🚀
+
+================================================================================
