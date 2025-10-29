@@ -178,7 +178,7 @@ export default function Orders() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vendorId: effectiveVendorId,
-          tableId: selectedTableId || null,
+          tableId: selectedTableId && selectedTableId !== "none" ? selectedTableId : null,
           items: orderItems,
           customerName: customerName || null,
         }),
@@ -285,10 +285,10 @@ export default function Orders() {
                   <Label>Table (Optional)</Label>
                   <Select value={selectedTableId} onValueChange={setSelectedTableId}>
                     <SelectTrigger data-testid="select-table">
-                      <SelectValue placeholder="Select a table" />
+                      <SelectValue placeholder="Select a table (optional)" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">No table</SelectItem>
+                      <SelectItem value="none">No table</SelectItem>
                       {tables.map(table => (
                         <SelectItem key={table.id} value={table.id}>
                           Table {table.tableNumber}
