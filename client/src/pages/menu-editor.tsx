@@ -24,6 +24,9 @@ export default function MenuEditor() {
   const { vendor } = useAuth();
   const queryClient = useQueryClient();
   
+  // Check if user is a waiter (read-only access)
+  const isWaiter = vendor?.role === "waiter";
+  
   // Get categories based on vendor's business type
   const businessType = (vendor?.businessType as keyof typeof VENDOR_CATEGORIES) || "restaurant";
   const categories = VENDOR_CATEGORIES[businessType] || VENDOR_CATEGORIES.restaurant;
@@ -186,16 +189,19 @@ export default function MenuEditor() {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold font-display">Menu Editor</h1>
-          <p className="text-muted-foreground mt-1">Manage your menu items and pricing</p>
+          <h1 className="text-3xl font-bold font-display">{isWaiter ? "Menu" : "Menu Editor"}</h1>
+          <p className="text-muted-foreground mt-1">
+            {isWaiter ? "View menu items to take customer orders" : "Manage your menu items and pricing"}
+          </p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2" onClick={() => handleOpenDialog()} data-testid="button-add-item">
-              <Plus className="w-4 h-4" />
-              Add Item
-            </Button>
-          </DialogTrigger>
+        {!isWaiter && (
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2" onClick={() => handleOpenDialog()} data-testid="button-add-item">
+                <Plus className="w-4 h-4" />
+                Add Item
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingItem ? "Edit Menu Item" : "Add New Menu Item"}</DialogTitle>
@@ -329,20 +335,25 @@ export default function MenuEditor() {
             </Form>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
-      <MenuBulkImport />
+      {!isWaiter && <MenuBulkImport />}
 
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground">Loading menu...</div>
       ) : menuItems.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
-            <p className="text-muted-foreground mb-4">No menu items yet</p>
-            <Button onClick={() => handleOpenDialog()} className="gap-2">
-              <Plus className="w-4 h-4" />
-              Add Your First Item
-            </Button>
+            <p className="text-muted-foreground mb-4">
+              {isWaiter ? "No menu items available" : "No menu items yet"}
+            </p>
+            {!isWaiter && (
+              <Button onClick={() => handleOpenDialog()} className="gap-2">
+                <Plus className="w-4 h-4" />
+                Add Your First Item
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -350,37 +361,41 @@ export default function MenuEditor() {
           {menuItems.map(item => (
             <div key={item.id} className="relative group">
               <MenuItemCard item={item} readonly />
-              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  className="rounded-full shadow-lg"
-                  onClick={() => handleOpenDialog(item)}
-                  data-testid={`button-edit-${item.id}`}
-                >
-                  <Edit className="w-4 h-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="destructive"
-                  className="rounded-full shadow-lg"
-                  onClick={() => handleDelete(item.id)}
-                  data-testid={`button-delete-${item.id}`}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-              <div className="mt-2">
-                <Button
-                  variant={item.isAvailable ? "outline" : "default"}
-                  size="sm"
-                  className="w-full"
-                  onClick={() => toggleAvailability(item.id, !item.isAvailable)}
-                  data-testid={`button-toggle-${item.id}`}
-                >
-                  {item.isAvailable ? "Mark as Sold Out" : "Mark as Available"}
-                </Button>
-              </div>
+              {!isWaiter && (
+                <>
+                  <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      size="icon"
+                      variant="secondary"
+                      className="rounded-full shadow-lg"
+                      onClick={() => handleOpenDialog(item)}
+                      data-testid={`button-edit-${item.id}`}
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      className="rounded-full shadow-lg"
+                      onClick={() => handleDelete(item.id)}
+                      data-testid={`button-delete-${item.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <div className="mt-2">
+                    <Button
+                      variant={item.isAvailable ? "outline" : "default"}
+                      size="sm"
+                      className="w-full"
+                      onClick={() => toggleAvailability(item.id, !item.isAvailable)}
+                      data-testid={`button-toggle-${item.id}`}
+                    >
+                      {item.isAvailable ? "Mark as Sold Out" : "Mark as Available"}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
