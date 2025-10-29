@@ -27,7 +27,7 @@ Copy and paste these commands one by one in the Shell:
 cd /home/runner/workspace
 
 # Initialize git repository
-git init
+
 
 # Configure git user (if not already done)
 git config user.email "your-email@example.com"
