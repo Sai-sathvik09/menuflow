@@ -240,6 +240,10 @@ export default function Orders() {
 
   const canCreateOrder = Object.keys(selectedItems).length > 0;
 
+  const isWaiter = vendor?.role === "waiter";
+  const isKitchen = vendor?.role === "kitchen";
+  const isOwner = vendor?.role === "owner";
+
   if (isLoading) {
     return (
       <div className="p-6">
@@ -248,6 +252,175 @@ export default function Orders() {
     );
   }
 
+  // Waiters see only the create order interface
+  if (isWaiter) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold font-display">Take Order</h1>
+            <p className="text-muted-foreground mt-1">Create new orders for customers</p>
+          </div>
+          <Dialog open={isCreateOrderOpen} onOpenChange={setIsCreateOrderOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2" data-testid="button-create-order">
+                <Plus className="w-4 h-4" />
+                Create Order
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+              <DialogHeader>
+                <DialogTitle>Create New Order</DialogTitle>
+                <DialogDescription>
+                  Select menu items and assign to a table
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex-1 overflow-y-auto space-y-4">
+                {/* Customer Details */}
+                <div className="space-y-3">
+                  <Label>Customer Name (Optional)</Label>
+                  <Input
+                    placeholder="Enter customer name"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    data-testid="input-customer-name"
+                  />
+                </div>
+
+                {/* Table Selection */}
+                {isProOrElite && tables.length > 0 && (
+                  <div className="space-y-3">
+                    <Label>Table (Optional)</Label>
+                    <Select value={selectedTableId} onValueChange={setSelectedTableId}>
+                      <SelectTrigger data-testid="select-table">
+                        <SelectValue placeholder="Select a table (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No table</SelectItem>
+                        {tables.map(table => (
+                          <SelectItem key={table.id} value={table.id}>
+                            Table {table.tableNumber}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {/* Selected Items */}
+                {Object.keys(selectedItems).length > 0 && (
+                  <div className="space-y-3">
+                    <Label>Selected Items</Label>
+                    <div className="space-y-2">
+                      {Object.entries(selectedItems).map(([itemId, quantity]) => {
+                        const menuItem = menuItems.find(m => m.id === itemId);
+                        if (!menuItem) return null;
+                        return (
+                          <div key={itemId} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                            <div className="flex-1">
+                              <div className="font-medium">{menuItem.name}</div>
+                              <div className="text-sm text-muted-foreground">${menuItem.price}</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                onClick={() => handleRemoveItemFromCart(itemId)}
+                              >
+                                <Minus className="w-3 h-3" />
+                              </Button>
+                              <span className="w-8 text-center font-semibold">{quantity}</span>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                onClick={() => handleAddItem(itemId)}
+                              >
+                                <Plus className="w-3 h-3" />
+                              </Button>
+                            </div>
+                            <div className="font-semibold w-20 text-right">
+                              ${(parseFloat(menuItem.price) * quantity).toFixed(2)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <div className="flex justify-between items-center pt-2 border-t">
+                        <span className="font-semibold">Total</span>
+                        <span className="text-xl font-bold text-primary">${calculateTotal()}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Menu Items */}
+                <div className="space-y-3">
+                  <Label>Menu Items</Label>
+                  <div className="grid gap-2">
+                    {menuItems.filter(item => item.isAvailable).map(item => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-3 p-3 rounded-lg border hover-elevate transition-all cursor-pointer"
+                        onClick={() => handleAddItem(item.id)}
+                        data-testid={`menu-item-${item.id}`}
+                      >
+                        <div className="flex-1">
+                          <div className="font-medium">{item.name}</div>
+                          {item.description && (
+                            <div className="text-sm text-muted-foreground">{item.description}</div>
+                          )}
+                        </div>
+                        <div className="font-semibold text-primary">${item.price}</div>
+                        {selectedItems[item.id] && (
+                          <Badge variant="outline" className="bg-primary/10 text-primary">
+                            {selectedItems[item.id]}
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                    {menuItems.filter(item => item.isAvailable).length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        No menu items available
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsCreateOrderOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => createOrderMutation.mutate()}
+                  disabled={!canCreateOrder || createOrderMutation.isPending}
+                  className="gap-2"
+                  data-testid="button-submit-order"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  Create Order
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <Card className="p-8 text-center">
+          <p className="text-muted-foreground">
+            Click "Create Order" above to start taking a new order
+          </p>
+        </Card>
+      </div>
+    );
+  }
+
+  // Kitchen and owners see the full order management interface
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-start">
@@ -255,13 +428,14 @@ export default function Orders() {
           <h1 className="text-3xl font-bold font-display">Live Orders</h1>
           <p className="text-muted-foreground mt-1">Manage incoming orders in real-time</p>
         </div>
-        <Dialog open={isCreateOrderOpen} onOpenChange={setIsCreateOrderOpen}>
-          <DialogTrigger asChild>
-            <Button className="gap-2" data-testid="button-create-order">
-              <Plus className="w-4 h-4" />
-              Create Order
-            </Button>
-          </DialogTrigger>
+        {isOwner && (
+          <Dialog open={isCreateOrderOpen} onOpenChange={setIsCreateOrderOpen}>
+            <DialogTrigger asChild>
+              <Button className="gap-2" data-testid="button-create-order">
+                <Plus className="w-4 h-4" />
+                Create Order
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
             <DialogHeader>
               <DialogTitle>Create New Order</DialogTitle>
@@ -403,6 +577,7 @@ export default function Orders() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       <Tabs defaultValue="all" className="w-full">

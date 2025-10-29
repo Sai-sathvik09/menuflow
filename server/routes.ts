@@ -225,6 +225,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create kitchen staff account (owner only)
+  app.post("/api/auth/kitchen", async (req, res) => {
+    try {
+      const { ownerId, email, password } = req.body;
+
+      if (!ownerId || !email || !password) {
+        return res.status(400).json({ message: "ownerId, email, and password are required" });
+      }
+
+      // Verify owner exists
+      const owner = await storage.getVendor(ownerId);
+      if (!owner || owner.role !== "owner") {
+        return res.status(403).json({ message: "Only owners can create kitchen staff accounts" });
+      }
+
+      // Check if email already exists
+      const existing = await storage.getVendorByEmail(email);
+      if (existing) {
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Create kitchen staff account
+      const kitchenStaff = await storage.createVendor({
+        email,
+        password: hashedPassword,
+        businessName: `${owner.businessName} - Kitchen`,
+        businessType: owner.businessType as any,
+        subscriptionTier: owner.subscriptionTier as any,
+        tableLimit: 0,
+        role: "kitchen",
+        ownerId: owner.id,
+      });
+
+      // Don't send password back
+      const { password: _, ...staffData } = kitchenStaff;
+      res.json(staffData);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to create kitchen staff account" });
+    }
+  });
+
+  // Get kitchen staff for owner
+  app.get("/api/auth/kitchen/:ownerId", async (req, res) => {
+    try {
+      const kitchenStaff = await storage.getKitchenStaffForOwner(req.params.ownerId);
+      res.json(kitchenStaff);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch kitchen staff" });
+    }
+  });
+
   // Menu Routes
   app.get("/api/menu/:vendorId", async (req, res) => {
     try {
@@ -400,9 +454,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tableId: actualTableId,
       };
       
-      // Get next order number
-      const orderNumber = await storage.getNextOrderNumber(orderData.vendorId);
+      // Check if table has active orders and merge if it does
+      if (actualTableId) {
+        const allOrders = await storage.getOrders(orderData.vendorId, false);
+        const activeOrderForTable = allOrders.find((o: Order) => 
+          o.tableId === actualTableId && 
+          (o.status === "new" || o.status === "preparing" || o.status === "ready")
+        );
+        
+        if (activeOrderForTable) {
+          // Merge items into existing order
+          const existingItems = activeOrderForTable.items as Array<{ menuItemId: string; name: string; price: string; quantity: number }>;
+          const newItems = orderData.items;
+          
+          // Merge quantities for duplicate items
+          const mergedItems = [...existingItems];
+          for (const newItem of newItems) {
+            const existingIndex = mergedItems.findIndex(i => i.menuItemId === newItem.menuItemId);
+            if (existingIndex >= 0) {
+              mergedItems[existingIndex].quantity += newItem.quantity;
+            } else {
+              mergedItems.push(newItem);
+            }
+          }
+          
+          // Calculate new total
+          const newTotal = mergedItems.reduce((sum, item) => 
+            sum + (parseFloat(item.price) * item.quantity), 0
+          ).toFixed(2);
+          
+          // Update existing order with merged items
+          const updatedOrder = await storage.updateOrderItems(activeOrderForTable.id, mergedItems, newTotal);
+          
+          // Broadcast order update
+          broadcastToVendor(orderData.vendorId, {
+            type: 'ORDER_UPDATE',
+            order: updatedOrder,
+          });
+          
+          return res.json(updatedOrder);
+        }
+      }
       
+      // No active order for table, create new order
+      const orderNumber = await storage.getNextOrderNumber(orderData.vendorId);
       const order = await storage.createOrder({ ...orderData, orderNumber });
       
       // Broadcast new order to vendor's connected clients

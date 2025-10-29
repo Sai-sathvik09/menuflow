@@ -283,7 +283,7 @@ export type OrderStatus = "new" | "preparing" | "ready" | "completed";
 export type SenderType = "customer" | "vendor";
 export type MessageType = "text" | "order_inquiry" | "menu_question" | "feedback" | "support";
 export type BusinessType = "restaurant" | "streetFood" | "cafe" | "bakery" | "quickService";
-export type VendorRole = "owner" | "waiter";
+export type VendorRole = "owner" | "waiter" | "kitchen";
 
 // Predefined categories for different vendor types
 export const VENDOR_CATEGORIES = {

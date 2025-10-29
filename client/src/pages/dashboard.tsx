@@ -1,19 +1,27 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OrderCard } from "@/components/order-card";
-import { type Order } from "@shared/schema";
-import { DollarSign, ShoppingBag, Clock, TrendingUp, Copy, Check } from "lucide-react";
+import { type Order, type Vendor } from "@shared/schema";
+import { DollarSign, ShoppingBag, Clock, TrendingUp, Copy, Check, Plus } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWebSocket } from "@/lib/use-websocket";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function Dashboard() {
   const { vendor } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [copiedPassword, setCopiedPassword] = useState(false);
+  const [isKitchenDialogOpen, setIsKitchenDialogOpen] = useState(false);
+  const [kitchenEmail, setKitchenEmail] = useState("");
+  const [kitchenPassword, setKitchenPassword] = useState("");
   
   // Connect to WebSocket for real-time order updates
   useWebSocket();
@@ -29,6 +37,54 @@ export default function Dashboard() {
     queryKey: ["/api/auth/waiter", vendor?.id],
     enabled: !!vendor?.id && vendor?.role === "owner",
   });
+
+  // Fetch kitchen staff for owners
+  const { data: kitchenStaff = [] } = useQuery<Vendor[]>({
+    queryKey: ["/api/auth/kitchen", vendor?.id],
+    enabled: !!vendor?.id && vendor?.role === "owner",
+  });
+
+  // Mutation to create kitchen staff
+  const createKitchenStaff = useMutation({
+    mutationFn: async (data: { ownerId: string; email: string; password: string }) => {
+      const response = await apiRequest("POST", "/api/auth/kitchen", data);
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/kitchen", vendor?.id] });
+      setIsKitchenDialogOpen(false);
+      setKitchenEmail("");
+      setKitchenPassword("");
+      toast({
+        title: "Success!",
+        description: "Kitchen staff account created successfully",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create kitchen staff account",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleCreateKitchenStaff = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vendor?.id || !kitchenEmail || !kitchenPassword) {
+      toast({
+        title: "Error",
+        description: "Please fill in all fields",
+        variant: "destructive",
+      });
+      return;
+    }
+    createKitchenStaff.mutate({
+      ownerId: vendor.id,
+      email: kitchenEmail,
+      password: kitchenPassword,
+    });
+  };
 
   const copyToClipboard = (text: string, type: 'email' | 'password') => {
     navigator.clipboard.writeText(text);
@@ -182,6 +238,105 @@ export default function Dashboard() {
                   </Button>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Kitchen Staff Accounts (Only for Owners) */}
+      {vendor?.role === "owner" && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold font-display">Kitchen Staff Accounts</h2>
+            <Dialog open={isKitchenDialogOpen} onOpenChange={setIsKitchenDialogOpen}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-add-kitchen-staff">
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Kitchen Staff
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Kitchen Staff Account</DialogTitle>
+                  <DialogDescription>
+                    Create a new kitchen staff account. They can use these credentials to log in and view orders.
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleCreateKitchenStaff} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="kitchen-email">Email</Label>
+                    <Input
+                      id="kitchen-email"
+                      type="email"
+                      placeholder="kitchen@example.com"
+                      value={kitchenEmail}
+                      onChange={(e) => setKitchenEmail(e.target.value)}
+                      required
+                      data-testid="input-kitchen-email"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="kitchen-password">Password</Label>
+                    <Input
+                      id="kitchen-password"
+                      type="password"
+                      placeholder="Enter password"
+                      value={kitchenPassword}
+                      onChange={(e) => setKitchenPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      data-testid="input-kitchen-password"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsKitchenDialogOpen(false)}
+                      data-testid="button-cancel-kitchen"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={createKitchenStaff.isPending}
+                      data-testid="button-submit-kitchen"
+                    >
+                      {createKitchenStaff.isPending ? "Creating..." : "Create Account"}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Kitchen Staff List</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {kitchenStaff.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No kitchen staff accounts yet. Click "Add Kitchen Staff" to create one.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {kitchenStaff.map((staff) => (
+                    <div
+                      key={staff.id}
+                      className="flex items-center justify-between gap-4 p-3 bg-muted rounded-md"
+                      data-testid={`kitchen-staff-${staff.id}`}
+                    >
+                      <div className="flex-1">
+                        <p className="text-xs text-muted-foreground mb-1">Email</p>
+                        <p className="font-medium font-mono text-sm" data-testid={`text-kitchen-email-${staff.id}`}>
+                          {staff.email}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

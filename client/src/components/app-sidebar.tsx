@@ -27,39 +27,45 @@ const menuItems = [
     title: "Dashboard",
     url: "/dashboard",
     icon: LayoutDashboard,
-    waiterAccess: false, // Waiters can see dashboard but it won't show waiter credentials
+    roles: ["owner"], // Only owners see dashboard
   },
   {
     title: "Live Orders",
     url: "/orders",
     icon: ListOrdered,
-    waiterAccess: true, // Waiters have full access to orders
+    roles: ["owner", "kitchen"], // Kitchen and owners manage orders
+  },
+  {
+    title: "Take Order",
+    url: "/orders",
+    icon: ListOrdered,
+    roles: ["waiter"], // Waiters use this to create orders
   },
   {
     title: "Menu",
     url: "/menu",
     icon: UtensilsCrossed,
-    waiterAccess: true, // Waiters can view menu to take orders
+    roles: ["owner", "waiter"], // Waiters view menu to take orders
   },
   {
     title: "QR Codes",
     url: "/qr-codes",
     icon: QrCode,
-    waiterAccess: false, // Only owners can manage QR codes
+    roles: ["owner"], // Only owners manage QR codes
   },
   {
     title: "Tables",
     url: "/tables",
     icon: MapPin,
     proOnly: true,
-    waiterAccess: true, // Waiters can view tables to assign orders
+    roles: ["owner", "waiter"], // Waiters view tables to assign orders
   },
   {
     title: "Analytics",
     url: "/analytics",
     icon: BarChart3,
     proOnly: true,
-    waiterAccess: false, // Only owners can see analytics
+    roles: ["owner"], // Only owners see analytics
   },
 ];
 
@@ -68,15 +74,16 @@ export function AppSidebar() {
   const { vendor, logout } = useAuth();
 
   const isProOrElite = vendor?.subscriptionTier === "pro" || vendor?.subscriptionTier === "elite";
-  const isWaiter = vendor?.role === "waiter";
+  const userRole = vendor?.role || "owner";
 
   // Filter menu items based on role
   const visibleMenuItems = menuItems.filter((item) => {
-    // If waiter, only show items with waiterAccess
-    if (isWaiter) {
-      return item.waiterAccess;
-    }
-    // If owner, show all items
+    // Check if user's role is allowed for this item
+    if (!item.roles.includes(userRole)) return false;
+    
+    // Check subscription tier for Pro-only features
+    if (item.proOnly && !isProOrElite) return true; // Show but disabled
+    
     return true;
   });
 
@@ -134,9 +141,9 @@ export function AppSidebar() {
               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-primary/20 text-primary capitalize">
                 {vendor?.subscriptionTier} Plan
               </span>
-              {isWaiter && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-status-preparing/20 text-status-preparing">
-                  Waiter
+              {userRole !== "owner" && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-status-preparing/20 text-status-preparing capitalize">
+                  {userRole}
                 </span>
               )}
             </div>
