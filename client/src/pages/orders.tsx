@@ -173,6 +173,8 @@ export default function Orders() {
         };
       });
 
+      const total = calculateTotal();
+
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -180,6 +182,7 @@ export default function Orders() {
           vendorId: effectiveVendorId,
           tableId: selectedTableId && selectedTableId !== "none" ? selectedTableId : null,
           items: orderItems,
+          totalAmount: total,
           customerName: customerName || null,
         }),
       });
