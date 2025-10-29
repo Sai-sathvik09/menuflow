@@ -1,0 +1,687 @@
+================================================================================
+                        MENUFLOW - PROJECT DOCUMENTATION
+                     Digital QR Menu Platform for Restaurants
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+1. Project Overview
+2. Technology Stack
+3. System Architecture
+4. User Roles & Permissions
+5. Core Features
+6. Database Schema
+7. API Endpoints
+8. Frontend Structure
+9. Development Setup
+10. Security Notes
+11. Deployment Information
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+MenuFlow is a QR code-based digital menu platform designed for restaurants and 
+street vendors. The system enables businesses to create customizable digital 
+menus that customers can access by scanning QR codes, while providing real-time 
+order management, analytics, and business insights.
+
+KEY CAPABILITIES:
+- Three distinct user roles: Owner, Waiter, Kitchen Staff
+- QR code generation for tables
+- Real-time order tracking with WebSocket notifications
+- Smart order merging for table-based service
+- File upload functionality (CSV, PDF, photos)
+- Automated bill generation
+- Real-time customer-vendor chat
+- Business analytics and insights
+- Subscription-based tier system
+
+================================================================================
+2. TECHNOLOGY STACK
+================================================================================
+
+FRONTEND
+--------
+- React 18 with TypeScript
+- Wouter (lightweight routing)
+- TanStack Query (React Query v5) for server state management
+- React Hook Form + Zod for form validation
+- Radix UI + shadcn/ui component system
+- Tailwind CSS for styling
+- Lucide React for icons
+- WebSocket for real-time updates
+- Vite for build tooling
+
+BACKEND
+-------
+- Node.js with Express.js
+- TypeScript with ES modules
+- PostgreSQL (Neon serverless)
+- Drizzle ORM for database queries
+- bcrypt for password hashing
+- WebSocket (ws library) for real-time communication
+- tsx for TypeScript execution
+
+DEVELOPMENT TOOLS
+-----------------
+- Vite Dev Server with Hot Module Replacement
+- drizzle-kit for database migrations
+- TypeScript for type safety across stack
+- Replit development environment
+
+EXTERNAL SERVICES
+-----------------
+- Neon PostgreSQL (serverless database)
+- GitHub (version control integration)
+- Google Fonts (Nunito & Inter typography)
+
+================================================================================
+3. SYSTEM ARCHITECTURE
+================================================================================
+
+THREE-TIER ARCHITECTURE
+-----------------------
+
+1. FRONTEND LAYER (React SPA)
+   - Component-based UI with role-specific interfaces
+   - Client-side routing with Wouter
+   - State management via TanStack Query
+   - WebSocket client for real-time updates
+   - localStorage for session persistence
+
+2. BACKEND LAYER (Express API)
+   - RESTful API endpoints under /api namespace
+   - WebSocket server at /ws endpoint
+   - Business logic in route handlers
+   - Storage abstraction layer (IStorage interface)
+   - Authentication via bcrypt + localStorage tokens
+
+3. DATA LAYER (PostgreSQL + Drizzle ORM)
+   - Relational database schema
+   - Type-safe queries via Drizzle
+   - Automatic migrations with drizzle-kit
+   - Connection pooling via Neon
+
+REAL-TIME COMMUNICATION
+-----------------------
+- WebSocket server maintains Map of vendorId → WebSocket connections
+- Multiple device support per vendor (kitchen display, tablet, phone)
+- Message types: NEW_ORDER, ORDER_UPDATE
+- Automatic reconnection and cleanup
+
+================================================================================
+4. USER ROLES & PERMISSIONS
+================================================================================
+
+OWNER ROLE
+----------
+Full system access including:
+- Menu management (create, edit, delete items)
+- Table management (create tables, generate QR codes)
+- Order management (create, view, update status)
+- Staff account creation (waiters & kitchen staff)
+- Analytics dashboard
+- File uploads
+- Business settings
+- Real-time chat with customers
+
+Access: All pages and features
+
+WAITER ROLE
+-----------
+Limited access for front-of-house staff:
+- View menu items (read-only)
+- View table status (read-only)
+- Create new orders
+- Orders automatically merge with existing table orders
+
+Access: Menu page, Tables page, Create Order dialog only
+
+KITCHEN ROLE
+------------
+Limited access for back-of-house staff:
+- View incoming orders
+- Update order status (new → preparing → ready → completed)
+- No order creation or deletion
+- No access to menu, tables, or analytics
+
+Access: Live Orders page only (status management)
+
+EFFECTIVE VENDOR ID PATTERN
+----------------------------
+Waiters and kitchen staff use their owner's vendorId for data queries,
+ensuring they see the correct business data while maintaining separate
+login credentials.
+
+================================================================================
+5. CORE FEATURES
+================================================================================
+
+AUTHENTICATION & AUTHORIZATION
+-------------------------------
+- Email/password registration and login
+- Role-based access control (owner/waiter/kitchen)
+- Password change functionality
+- bcrypt password hashing (10 rounds)
+- localStorage-based session management
+
+⚠️ SECURITY NOTE: Current implementation is NOT production-ready
+   - No server-side session management
+   - vendorId can be spoofed in client
+   - Requires JWT or express-session for production
+
+STAFF ACCOUNT MANAGEMENT
+-------------------------
+Tier-based restrictions:
+  - Starter: NO staff accounts allowed
+  - Pro: Maximum 2 waiters + 2 kitchen staff
+  - Elite: UNLIMITED staff accounts
+
+Owners can create staff accounts from Dashboard:
+  - Waiter accounts: Limited to order creation
+  - Kitchen staff accounts: Limited to order status management
+  - Each has unique email/password credentials
+
+MENU MANAGEMENT
+---------------
+- Create, edit, delete menu items
+- Categories: Appetizers, Mains, Beverages, Desserts, Sides
+- Availability toggle (mark as sold out)
+- Dietary tags: Vegetarian, Vegan, Spicy, Gluten-free
+- Optional image URLs for food photos
+- Price management
+
+TABLE MANAGEMENT (Pro/Elite only)
+---------------------------------
+- Create and manage restaurant tables
+- Unique QR code per table
+- Active/inactive status toggle
+- Table number assignment
+- Table limits by tier:
+  * Starter: 0 tables
+  * Pro: 10 or 25 tables
+  * Elite: Unlimited tables
+
+ORDER MANAGEMENT
+----------------
+Sequential Features:
+- Auto-incrementing order numbers per vendor
+- Four-state workflow: new → preparing → ready → completed
+- Order archiving system
+- Customer name optional field
+
+Smart Order Merging:
+- When creating order with tableId, checks for active orders
+- Active = status is new, preparing, or ready (not completed)
+- If active order exists:
+  * Duplicate items: quantities combined
+  * New items: added to order
+  * Total amount recalculated
+  * Existing order updated (no duplicate created)
+  * Broadcasts ORDER_UPDATE event
+- If no active order: creates new order, broadcasts NEW_ORDER
+
+Order Items:
+- Stored as JSON array with denormalized menu data
+- Prevents issues if menu items change after order placed
+- Each item includes: name, price, quantity, category
+
+REAL-TIME NOTIFICATIONS
+-----------------------
+- WebSocket connection per vendor
+- Live order updates without page refresh
+- Toast notifications for new orders
+- Optional audio alerts
+- Query cache invalidation on updates
+
+FILE UPLOAD SYSTEM
+------------------
+- CSV import for bulk menu items
+- PDF menu uploads
+- Food photography uploads
+- Processing status tracking
+- Import validation and error reporting
+
+BILLING SYSTEM
+--------------
+- Automatic bill generation from orders
+- Item-by-item breakdown
+- Subtotal and total calculations
+- PDF-ready format
+- Order reference linking
+
+CHAT SYSTEM
+-----------
+- Real-time customer-vendor messaging
+- Per-order chat threads
+- Unread message tracking
+- Message history persistence
+- Vendor-only access
+
+ANALYTICS (Pro/Elite only)
+--------------------------
+- Total orders and revenue tracking
+- Average order value calculations
+- Most/least ordered items analysis
+- Order status distribution
+- Time-based insights
+- CRM capabilities
+
+SUBSCRIPTION TIERS
+------------------
+Starter Tier:
+  - Core QR menu functionality
+  - Unlimited menu items
+  - Basic order management
+  - NO table management
+  - NO staff accounts
+  - Dashboard and live orders
+
+Pro Tier:
+  - All Starter features
+  - Table management (10 or 25 tables)
+  - QR codes per table
+  - Analytics dashboard
+  - CRM insights
+  - 2 waiter accounts
+  - 2 kitchen staff accounts
+
+Elite Tier:
+  - All Pro features
+  - Unlimited tables
+  - Unlimited staff accounts
+  - Advanced AI insights (future)
+  - Premium customization
+
+================================================================================
+6. DATABASE SCHEMA
+================================================================================
+
+VENDORS TABLE
+-------------
+Stores business accounts and staff credentials
+
+Fields:
+- id (UUID, primary key)
+- email (text, unique, not null)
+- password (text, hashed, not null)
+- businessName (text, not null)
+- businessType (enum: restaurant, cafe, food_truck, street_vendor)
+- subscriptionTier (enum: starter, pro, elite)
+- tableLimit (integer, default 0)
+- role (enum: owner, waiter, kitchen)
+- ownerId (UUID, nullable, references vendors.id)
+
+Relationships:
+- Self-referential: owner → staff (one-to-many)
+- Vendor → Menu Items (one-to-many)
+- Vendor → Tables (one-to-many)
+- Vendor → Orders (one-to-many)
+
+MENU ITEMS TABLE
+----------------
+Stores menu offerings
+
+Fields:
+- id (UUID, primary key)
+- vendorId (UUID, references vendors.id, cascade delete)
+- name (text, not null)
+- description (text)
+- price (numeric, not null)
+- category (enum: appetizers, mains, beverages, desserts, sides)
+- imageUrl (text, nullable)
+- available (boolean, default true)
+- dietaryTags (text array: vegetarian, vegan, spicy, gluten-free)
+
+TABLES TABLE
+------------
+Stores restaurant table information (Pro/Elite only)
+
+Fields:
+- id (UUID, primary key)
+- vendorId (UUID, references vendors.id, cascade delete)
+- tableNumber (text, not null)
+- qrCode (text, unique, not null)
+- active (boolean, default true)
+
+ORDERS TABLE
+------------
+Stores customer orders
+
+Fields:
+- id (UUID, primary key)
+- vendorId (UUID, references vendors.id, cascade delete)
+- tableId (UUID, references tables.id, nullable, cascade delete)
+- orderNumber (integer, not null)
+- status (enum: new, preparing, ready, completed)
+- items (JSON array, not null)
+- totalAmount (numeric, not null)
+- customerName (text, nullable)
+- createdAt (timestamp, default now())
+- archived (boolean, default false)
+
+Item JSON Structure:
+{
+  "id": "uuid",
+  "name": "Item name",
+  "price": "9.99",
+  "quantity": 2,
+  "category": "mains"
+}
+
+CHAT MESSAGES TABLE
+-------------------
+Stores customer-vendor chat messages
+
+Fields:
+- id (UUID, primary key)
+- vendorId (UUID, references vendors.id, cascade delete)
+- orderId (UUID, references orders.id, nullable, cascade delete)
+- message (text, not null)
+- senderType (enum: customer, vendor)
+- read (boolean, default false)
+- createdAt (timestamp, default now())
+
+FILE UPLOADS TABLE
+------------------
+Tracks uploaded files
+
+Fields:
+- id (UUID, primary key)
+- vendorId (UUID, references vendors.id, cascade delete)
+- fileName (text, not null)
+- fileType (enum: csv, pdf, image)
+- fileUrl (text, not null)
+- processingStatus (enum: pending, processing, completed, failed)
+- itemsImported (integer, nullable)
+- errorMessage (text, nullable)
+- uploadedAt (timestamp, default now())
+
+BILLS TABLE
+-----------
+Stores generated bills
+
+Fields:
+- id (UUID, primary key)
+- orderId (UUID, references orders.id, unique, not null)
+- items (JSON array, not null)
+- subtotal (numeric, not null)
+- total (numeric, not null)
+- generatedAt (timestamp, default now())
+
+================================================================================
+7. API ENDPOINTS
+================================================================================
+
+AUTHENTICATION ENDPOINTS
+------------------------
+POST   /api/auth/register        - Create new vendor account
+POST   /api/auth/login           - Login with email/password
+POST   /api/auth/change-password - Update user password
+GET    /api/auth/waiter/:ownerId - Get waiter credentials (legacy)
+
+STAFF MANAGEMENT ENDPOINTS
+--------------------------
+POST   /api/auth/waiters              - Create waiter account (tier-restricted)
+GET    /api/auth/waiters/:ownerId     - Get all waiters for owner
+POST   /api/auth/kitchen              - Create kitchen staff (tier-restricted)
+GET    /api/auth/kitchen/:ownerId     - Get all kitchen staff for owner
+
+MENU ENDPOINTS
+--------------
+GET    /api/menu/:vendorId       - Get all menu items
+POST   /api/menu                 - Create menu item (owners only)
+PATCH  /api/menu/:id             - Update menu item (owners only)
+DELETE /api/menu/:id             - Delete menu item (owners only)
+
+TABLE ENDPOINTS
+---------------
+GET    /api/tables/:vendorId     - Get all tables
+POST   /api/tables               - Create table with QR code (Pro/Elite)
+DELETE /api/tables/:id           - Delete table (owners only)
+
+ORDER ENDPOINTS
+---------------
+GET    /api/orders/:vendorId                    - Get all orders
+GET    /api/orders/:vendorId/:id                - Get single order
+POST   /api/orders                              - Create order (with smart merging)
+PATCH  /api/orders/:id/status                   - Update order status
+PATCH  /api/orders/:id/archive                  - Archive order
+GET    /api/orders/:vendorId/next-order-number  - Get next order number
+
+CHAT ENDPOINTS
+--------------
+GET    /api/chat/:vendorId                - Get all messages
+GET    /api/chat/:vendorId/order/:orderId - Get messages for specific order
+POST   /api/chat                          - Send new message
+PATCH  /api/chat/:vendorId/mark-read      - Mark messages as read
+GET    /api/chat/:vendorId/unread-count   - Get unread message count
+
+FILE UPLOAD ENDPOINTS
+---------------------
+GET    /api/uploads/:vendorId           - Get all file uploads
+POST   /api/uploads                     - Upload new file
+PATCH  /api/uploads/:id/status          - Update processing status
+POST   /api/uploads/bulk-menu-items     - Bulk import menu items
+
+BILL ENDPOINTS
+--------------
+POST   /api/bills              - Generate bill for order
+GET    /api/bills/order/:id    - Get bill by order ID
+
+WEBSOCKET ENDPOINT
+------------------
+WS     /ws?vendorId=:id        - WebSocket connection for real-time updates
+
+Message Types:
+- NEW_ORDER: Sent when new order created
+- ORDER_UPDATE: Sent when order status changes
+
+================================================================================
+8. FRONTEND STRUCTURE
+================================================================================
+
+COMPONENT HIERARCHY
+-------------------
+App.tsx (Root)
+├── SidebarProvider (Layout wrapper)
+│   ├── AppSidebar (Navigation - role-based)
+│   ├── Header (SidebarTrigger + ThemeToggle)
+│   └── Main Content (Router)
+│       ├── Dashboard (Overview + Stats)
+│       ├── Menu (Item management)
+│       ├── Tables (QR code management)
+│       ├── Orders (Order workflow)
+│       ├── Analytics (Business insights)
+│       ├── Files (Upload management)
+│       ├── Chat (Customer communication)
+│       ├── Auth (Login/Register)
+│       └── Settings (Password change)
+└── Toaster (Global notifications)
+
+KEY COMPONENTS
+--------------
+- AppSidebar: Role-based navigation with tier badges
+- OrderCard: Order status display with action buttons
+- BillModal: Bill generation and preview
+- ThemeToggle: Dark/light mode switcher
+- Form components: Reusable form fields with validation
+
+ROUTING (Wouter)
+----------------
+/                  → Dashboard (default)
+/auth              → Login/Register
+/menu              → Menu management
+/tables            → Table management (Pro/Elite)
+/orders            → Order management
+/analytics         → Analytics dashboard (Pro/Elite)
+/files             → File uploads
+/chat              → Customer chat
+/settings          → User settings
+
+CUSTOM HOOKS
+------------
+- useAuth: Authentication context and vendor state
+- useWebSocket: Real-time connection management
+- useToast: Toast notification system
+
+STATE MANAGEMENT
+----------------
+- TanStack Query for server state (queries + mutations)
+- React Context for auth state
+- localStorage for session persistence
+- Query cache invalidation on WebSocket events
+
+STYLING SYSTEM
+--------------
+- Tailwind CSS utility classes
+- Custom CSS variables for theming
+- Food-inspired color palette:
+  * Saffron Yellow (primary)
+  * Paprika Red (destructive)
+  * Sage Green (success)
+  * Eggplant Purple (accent)
+  * Creamy Beige (background tones)
+- Status colors: Blue (new) → Orange (preparing) → Green (ready) → Gray (completed)
+- Dark mode support via Tailwind dark: variants
+
+================================================================================
+9. DEVELOPMENT SETUP
+================================================================================
+
+PREREQUISITES
+-------------
+- Node.js 18+ installed
+- PostgreSQL database (Neon recommended)
+- Replit account (for integrated development)
+
+ENVIRONMENT VARIABLES
+---------------------
+Required:
+- DATABASE_URL: PostgreSQL connection string
+
+Optional:
+- NODE_ENV: development | production
+
+INSTALLATION STEPS
+------------------
+1. Clone the repository
+2. Install dependencies: npm install
+3. Set up database connection (DATABASE_URL)
+4. Run database migrations: npm run db:push
+5. Start development server: npm run dev
+
+AVAILABLE SCRIPTS
+-----------------
+npm run dev          - Start development server (Vite + Express)
+npm run build        - Build for production
+npm run db:push      - Push schema changes to database
+npm run db:push --force - Force push (with data loss warning)
+
+DEVELOPMENT WORKFLOW
+--------------------
+1. Backend changes: Modify server/routes.ts or server/storage.ts
+2. Frontend changes: Modify client/src/* files
+3. Schema changes: Update shared/schema.ts, then run db:push
+4. Hot reload: Vite auto-refreshes on file changes
+
+PORT CONFIGURATION
+------------------
+- Frontend & Backend: Port 5000 (unified server)
+- Bind address: 0.0.0.0:5000 (for Replit deployment)
+- WebSocket: Same port as HTTP server
+
+================================================================================
+10. SECURITY NOTES
+================================================================================
+
+⚠️ CRITICAL SECURITY LIMITATIONS ⚠️
+------------------------------------
+
+The current authentication system is NOT production-ready and has severe 
+security vulnerabilities:
+
+CURRENT ISSUES:
+1. vendorId stored in client localStorage (can be spoofed)
+2. No server-side session management or JWT verification
+3. Role-based access controls can be bypassed
+4. No CSRF protection for state-changing operations
+5. Provides UI-level access control only
+
+REQUIRED FOR PRODUCTION:
+1. Implement server-side session management (express-session) or JWT tokens
+2. Add authentication middleware to verify user identity
+3. Add CSRF protection for all POST/PATCH/DELETE requests
+4. Implement proper role-based authorization on server
+5. Add rate limiting to prevent brute force attacks
+6. Enable HTTPS/TLS for all communications
+7. Implement proper password reset flow with email verification
+8. Add input validation and sanitization on all endpoints
+9. Set up proper CORS policies
+10. Regular security audits and dependency updates
+
+CURRENT SECURITY MEASURES:
+- Password hashing with bcrypt (10 rounds)
+- SQL injection prevention via Drizzle ORM parameterized queries
+- Input validation with Zod schemas
+- Tier-based feature restrictions on backend
+
+================================================================================
+11. DEPLOYMENT INFORMATION
+================================================================================
+
+PRODUCTION BUILD
+----------------
+Frontend: Vite builds to dist/public
+Backend: esbuild bundles to dist/index.js
+Static files: Served by Express in production mode
+
+DATABASE MIGRATIONS
+-------------------
+- Use drizzle-kit for schema changes
+- Run npm run db:push to apply migrations
+- NEVER manually write SQL migrations
+- Force push with --force flag if data loss warning appears
+
+ENVIRONMENT SETUP
+-----------------
+Production requires:
+- DATABASE_URL environment variable
+- NODE_ENV=production
+- Neon PostgreSQL connection
+- Proper firewall/security group configuration
+
+REPLIT DEPLOYMENT
+-----------------
+- Workflow: "Start application" runs npm run dev
+- Auto-restart on file changes
+- Port 5000 bound to 0.0.0.0
+- WebSocket support enabled
+- GitHub integration configured
+
+MONITORING
+----------
+- Check workflow logs for server errors
+- Monitor browser console for client errors
+- WebSocket connection status in browser
+- Database query performance via Neon dashboard
+
+SCALING CONSIDERATIONS
+----------------------
+- WebSocket connections scale with vendor count
+- Database connection pooling via Neon
+- Static asset CDN for image files recommended
+- Consider Redis for session storage in production
+- Implement horizontal scaling for high traffic
+
+================================================================================
+                            END OF DOCUMENTATION
+================================================================================
+
+For questions or support, contact the development team.
+Last updated: October 2025
+
+Project Repository: Connected via GitHub integration
+Tech Lead: [Your Name/Team]
+Status: Active Development
