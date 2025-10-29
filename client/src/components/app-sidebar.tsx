@@ -39,7 +39,7 @@ const menuItems = [
     title: "Menu",
     url: "/menu",
     icon: UtensilsCrossed,
-    waiterAccess: false, // Only owners can manage menu
+    waiterAccess: true, // Waiters can view menu to take orders
   },
   {
     title: "QR Codes",
@@ -52,7 +52,7 @@ const menuItems = [
     url: "/tables",
     icon: MapPin,
     proOnly: true,
-    waiterAccess: false, // Only owners can manage tables
+    waiterAccess: true, // Waiters can view tables to assign orders
   },
   {
     title: "Analytics",
