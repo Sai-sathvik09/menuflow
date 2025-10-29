@@ -2,9 +2,16 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { OrderCard } from "@/components/order-card";
 import { BillModal } from "@/components/bill-modal";
-import { type Order, type Bill } from "@shared/schema";
+import { type Order, type Bill, type MenuItem, type Table } from "@shared/schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Minus, X, ShoppingCart } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { useWebSocket } from "@/lib/use-websocket";
@@ -14,6 +21,10 @@ export default function Orders() {
   const { vendor } = useAuth();
   const queryClient = useQueryClient();
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [isCreateOrderOpen, setIsCreateOrderOpen] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
+  const [customerName, setCustomerName] = useState("");
+  const [selectedTableId, setSelectedTableId] = useState<string>("");
   
   // Connect to WebSocket for real-time order updates
   useWebSocket();
@@ -33,6 +44,19 @@ export default function Orders() {
   const { data: archivedOrders = [], isLoading: isLoadingArchived, isError: isErrorArchived } = useQuery<Order[]>({
     queryKey: ["/api/orders", effectiveVendorId, "archived"],
     enabled: !!effectiveVendorId,
+  });
+
+  // Fetch menu items for order creation
+  const { data: menuItems = [] } = useQuery<MenuItem[]>({
+    queryKey: ["/api/menu", effectiveVendorId],
+    enabled: !!effectiveVendorId,
+  });
+
+  // Fetch tables for order creation (Pro/Elite only)
+  const isProOrElite = vendor?.subscriptionTier === "pro" || vendor?.subscriptionTier === "elite";
+  const { data: tables = [] } = useQuery<Table[]>({
+    queryKey: ["/api/tables", effectiveVendorId],
+    enabled: !!effectiveVendorId && isProOrElite,
   });
 
   const newOrders = allOrders.filter(o => o.status === "new");
@@ -135,6 +159,84 @@ export default function Orders() {
     setSelectedOrderId(null);
   };
 
+  // Create order mutation
+  const createOrderMutation = useMutation({
+    mutationFn: async () => {
+      const orderItems = Object.entries(selectedItems).map(([itemId, quantity]) => {
+        const menuItem = menuItems.find(m => m.id === itemId);
+        if (!menuItem) throw new Error("Menu item not found");
+        return {
+          menuItemId: itemId,
+          name: menuItem.name,
+          price: menuItem.price,
+          quantity,
+        };
+      });
+
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vendorId: effectiveVendorId,
+          tableId: selectedTableId || null,
+          items: orderItems,
+          customerName: customerName || null,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to create order");
+      }
+
+      return response.json();
+    },
+    onSuccess: () => {
+      if (effectiveVendorId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/orders", effectiveVendorId] });
+      }
+      toast({
+        title: "Order created",
+        description: "New order has been added successfully",
+      });
+      setIsCreateOrderOpen(false);
+      setSelectedItems({});
+      setCustomerName("");
+      setSelectedTableId("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Create failed",
+        description: error.message || "Something went wrong",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleAddItem = (itemId: string) => {
+    setSelectedItems(prev => ({ ...prev, [itemId]: (prev[itemId] || 0) + 1 }));
+  };
+
+  const handleRemoveItemFromCart = (itemId: string) => {
+    setSelectedItems(prev => {
+      const newItems = { ...prev };
+      if (newItems[itemId] > 1) {
+        newItems[itemId]--;
+      } else {
+        delete newItems[itemId];
+      }
+      return newItems;
+    });
+  };
+
+  const calculateTotal = () => {
+    return Object.entries(selectedItems).reduce((total, [itemId, quantity]) => {
+      const menuItem = menuItems.find(m => m.id === itemId);
+      return total + (menuItem ? parseFloat(menuItem.price) * quantity : 0);
+    }, 0).toFixed(2);
+  };
+
+  const canCreateOrder = Object.keys(selectedItems).length > 0;
+
   if (isLoading) {
     return (
       <div className="p-6">
@@ -145,9 +247,159 @@ export default function Orders() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold font-display">Live Orders</h1>
-        <p className="text-muted-foreground mt-1">Manage incoming orders in real-time</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold font-display">Live Orders</h1>
+          <p className="text-muted-foreground mt-1">Manage incoming orders in real-time</p>
+        </div>
+        <Dialog open={isCreateOrderOpen} onOpenChange={setIsCreateOrderOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-2" data-testid="button-create-order">
+              <Plus className="w-4 h-4" />
+              Create Order
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Create New Order</DialogTitle>
+              <DialogDescription>
+                Select menu items and assign to a table
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto space-y-4">
+              {/* Customer Details */}
+              <div className="space-y-3">
+                <Label>Customer Name (Optional)</Label>
+                <Input
+                  placeholder="Enter customer name"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  data-testid="input-customer-name"
+                />
+              </div>
+
+              {/* Table Selection */}
+              {isProOrElite && tables.length > 0 && (
+                <div className="space-y-3">
+                  <Label>Table (Optional)</Label>
+                  <Select value={selectedTableId} onValueChange={setSelectedTableId}>
+                    <SelectTrigger data-testid="select-table">
+                      <SelectValue placeholder="Select a table" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">No table</SelectItem>
+                      {tables.map(table => (
+                        <SelectItem key={table.id} value={table.id}>
+                          Table {table.tableNumber}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Selected Items */}
+              {Object.keys(selectedItems).length > 0 && (
+                <div className="space-y-3">
+                  <Label>Selected Items</Label>
+                  <div className="space-y-2">
+                    {Object.entries(selectedItems).map(([itemId, quantity]) => {
+                      const menuItem = menuItems.find(m => m.id === itemId);
+                      if (!menuItem) return null;
+                      return (
+                        <div key={itemId} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                          <div className="flex-1">
+                            <div className="font-medium">{menuItem.name}</div>
+                            <div className="text-sm text-muted-foreground">${menuItem.price}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="h-8 w-8"
+                              onClick={() => handleRemoveItemFromCart(itemId)}
+                            >
+                              <Minus className="w-3 h-3" />
+                            </Button>
+                            <span className="w-8 text-center font-semibold">{quantity}</span>
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="h-8 w-8"
+                              onClick={() => handleAddItem(itemId)}
+                            >
+                              <Plus className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <div className="font-semibold w-20 text-right">
+                            ${(parseFloat(menuItem.price) * quantity).toFixed(2)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="flex justify-between items-center pt-2 border-t">
+                      <span className="font-semibold">Total</span>
+                      <span className="text-xl font-bold text-primary">${calculateTotal()}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Menu Items */}
+              <div className="space-y-3">
+                <Label>Menu Items</Label>
+                <div className="grid gap-2">
+                  {menuItems.filter(item => item.isAvailable).map(item => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 p-3 rounded-lg border hover-elevate transition-all cursor-pointer"
+                      onClick={() => handleAddItem(item.id)}
+                      data-testid={`menu-item-${item.id}`}
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{item.name}</div>
+                        {item.description && (
+                          <div className="text-sm text-muted-foreground">{item.description}</div>
+                        )}
+                      </div>
+                      <div className="font-semibold text-primary">${item.price}</div>
+                      {selectedItems[item.id] && (
+                        <Badge variant="outline" className="bg-primary/10 text-primary">
+                          {selectedItems[item.id]}
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                  {menuItems.filter(item => item.isAvailable).length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No menu items available
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsCreateOrderOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => createOrderMutation.mutate()}
+                disabled={!canCreateOrder || createOrderMutation.isPending}
+                className="gap-2"
+                data-testid="button-submit-order"
+              >
+                <ShoppingCart className="w-4 h-4" />
+                Create Order
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <Tabs defaultValue="all" className="w-full">

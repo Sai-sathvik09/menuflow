@@ -151,9 +151,9 @@ export default function Tables() {
   }
 
   // Helper to check if table has active orders
-  const hasActiveOrders = (tableNumber: string) => {
+  const hasActiveOrders = (tableId: string) => {
     return orders.some(order => 
-      order.tableNumber === tableNumber && 
+      order.tableId === tableId && 
       order.status !== "completed"
     );
   };
@@ -241,7 +241,7 @@ export default function Tables() {
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {tables.map(table => {
             const tableUrl = `${window.location.origin}/menu/${effectiveVendorId}/table/${table.tableNumber}`;
-            const isOccupied = hasActiveOrders(table.tableNumber);
+            const isOccupied = hasActiveOrders(table.id);
             
             return (
               <Card key={table.id} className="hover-elevate transition-all duration-300" data-testid={`card-table-${table.id}`}>
