@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { OrderCard } from "@/components/order-card";
-import { type Order, type Vendor, type ContactInquiry } from "@shared/schema";
-import { DollarSign, ShoppingBag, Clock, TrendingUp, Plus, Mail, Phone, MapPin, MessageSquare } from "lucide-react";
+import { type Order, type Vendor } from "@shared/schema";
+import { DollarSign, ShoppingBag, Clock, TrendingUp, Plus } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { useWebSocket } from "@/lib/use-websocket";
 import { Button } from "@/components/ui/button";
@@ -42,12 +42,6 @@ export default function Dashboard() {
   // Fetch kitchen staff for owners
   const { data: kitchenStaff = [] } = useQuery<Vendor[]>({
     queryKey: ["/api/auth/kitchen", vendor?.id],
-    enabled: !!vendor?.id && vendor?.role === "owner",
-  });
-
-  // Fetch contact inquiries for admin review
-  const { data: contactInquiries = [] } = useQuery<ContactInquiry[]>({
-    queryKey: ["/api/contact-inquiries"],
     enabled: !!vendor?.id && vendor?.role === "owner",
   });
 
@@ -459,70 +453,6 @@ export default function Dashboard() {
                       ))}
                     </div>
                   )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Contact Inquiries Section (Owner only) */}
-          {vendor?.role === "owner" && contactInquiries.length > 0 && (
-            <div className="space-y-4">
-              <h2 className="text-2xl font-bold font-display">Elite Plan Inquiries</h2>
-              <Card>
-                <CardHeader>
-                  <CardTitle>Sales Leads from Landing Page</CardTitle>
-                  <CardDescription>
-                    Review inquiries from potential customers interested in the Elite plan
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {contactInquiries.map((inquiry) => (
-                      <Card key={inquiry.id} className="border-l-4 border-l-primary" data-testid={`inquiry-card-${inquiry.id}`}>
-                        <CardHeader>
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <CardTitle className="text-lg">{inquiry.businessName}</CardTitle>
-                              <CardDescription>{inquiry.contactPerson}</CardDescription>
-                            </div>
-                            <div className="text-sm text-muted-foreground whitespace-nowrap">
-                              {new Date(inquiry.createdAt).toLocaleDateString()}
-                            </div>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div className="flex items-center gap-2 text-sm">
-                              <Mail className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                              <a href={`mailto:${inquiry.email}`} className="hover:underline truncate" data-testid={`inquiry-email-${inquiry.id}`}>
-                                {inquiry.email}
-                              </a>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm">
-                              <Phone className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                              <a href={`tel:${inquiry.phone}`} className="hover:underline" data-testid={`inquiry-phone-${inquiry.id}`}>
-                                {inquiry.phone}
-                              </a>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm">
-                              <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                              <span className="capitalize">{inquiry.restaurantType.replace("-", " ")}</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm">
-                              <TrendingUp className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                              <span>{inquiry.numberOfLocations} location(s)</span>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-2 bg-muted/50 p-3 rounded-md">
-                            <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                            <p className="text-sm flex-1" data-testid={`inquiry-message-${inquiry.id}`}>
-                              {inquiry.message}
-                            </p>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
                 </CardContent>
               </Card>
             </div>

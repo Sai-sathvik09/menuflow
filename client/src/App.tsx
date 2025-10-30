@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { SuperAdminAuthProvider } from "@/lib/super-admin-auth-context";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 
@@ -18,6 +19,8 @@ import MenuEditor from "@/pages/menu-editor";
 import QRCodes from "@/pages/qr-codes";
 import Tables from "@/pages/tables";
 import Analytics from "@/pages/analytics";
+import SuperAdminLogin from "@/pages/super-admin-login";
+import SuperAdminDashboard from "@/pages/super-admin-dashboard";
 import NotFound from "@/pages/not-found";
 
 function OwnerLayout({ children }: { children: React.ReactNode }) {
@@ -78,6 +81,10 @@ function Router() {
       <Route path="/menu/:vendorId" component={CustomerMenu} />
       <Route path="/menu/:vendorId/table/:tableId" component={CustomerMenu} />
 
+      {/* Super Admin Routes */}
+      <Route path="/super-admin/login" component={SuperAdminLogin} />
+      <Route path="/super-admin/dashboard" component={SuperAdminDashboard} />
+
       {/* Owner Portal Routes (Protected) */}
       <Route path="/dashboard">
         <ProtectedRoute component={Dashboard} />
@@ -108,10 +115,12 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+        <SuperAdminAuthProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </SuperAdminAuthProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

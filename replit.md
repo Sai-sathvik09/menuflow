@@ -76,18 +76,29 @@ Preferred communication style: Simple, everyday language.
 - If no active order exists, creates new order normally and broadcasts NEW_ORDER
 - Prevents duplicate orders on same table, streamlines kitchen workflow
 
-**⚠️ CRITICAL SECURITY LIMITATION:**
-The current authentication system is NOT production-ready and has critical security flaws:
+**⚠️ CRITICAL SECURITY LIMITATION - VENDOR AUTHENTICATION:**
+The current vendor authentication system is NOT production-ready and has critical security flaws:
 - vendorId is stored in client localStorage and passed in API requests (can be spoofed)
 - No server-side session management or JWT verification
 - Role-based access controls can be bypassed by sending owner's vendorId
 - Provides UI-level access control only, not security against malicious actors
 
+**⚠️ CRITICAL SECURITY LIMITATION - SUPER ADMIN AUTHENTICATION:**
+The super admin system has similar critical security flaws:
+- superAdmin object stored in client localStorage (can be forged)
+- API endpoints `/api/super-admin/*` lack server-side authentication verification
+- Anyone can forge localStorage and access platform analytics, vendor list, and contact inquiries
+- `/api/contact-inquiries` remains publicly accessible
+- No protected route guards on frontend (client-side redirect only after mount)
+- Provides UI-level access control only, not security against malicious actors
+
 **Required for Production:**
-- Implement server-side session management (express-session) or JWT tokens
+- Implement server-side session management (express-session) or JWT tokens for both vendors and super admins
 - Add authentication middleware to verify user identity from secure sessions
 - Add CSRF protection for state-changing operations
 - Implement proper role-based authorization checking authenticated user's role
+- Protect super admin API endpoints with backend middleware
+- Secure contact inquiries endpoint to super admin-only access
 
 **Staff Account Management:**
 - Owners can create waiter and kitchen staff accounts from the dashboard
@@ -105,6 +116,24 @@ The current authentication system is NOT production-ready and has critical secur
   - Storage method: getKitchenStaffForOwner
   - Dashboard UI includes form with email/password inputs and list of existing kitchen staff
   - Kitchen staff login and see limited interface (order status management only)
+
+**Super Admin System (Platform Administration):**
+- **Purpose:** Platform-wide administration and analytics for MenuFlow operators
+- **Access:** Separate login at `/super-admin/login` (Email: admin@menuflow.com, Password: admin123456)
+- **Features:**
+  - Platform analytics: Total vendors, subscription distribution, total orders, total revenue
+  - Vendor management: View all registered vendors with business details and subscription tiers
+  - Elite plan inquiries: Review contact form submissions from landing page
+- **Database:**
+  - super_admins table with email/password authentication
+  - Seeding script: `tsx server/seed-super-admin.ts`
+- **API Endpoints:**
+  - POST `/api/super-admin/login` - Super admin authentication
+  - GET `/api/super-admin/stats` - Platform statistics
+  - GET `/api/super-admin/vendors` - All vendor accounts
+  - GET `/api/contact-inquiries` - Elite plan sales leads (moved from vendor dashboard)
+- **Security Note:** Same critical limitations as vendor auth - localStorage-based with no server verification
+- **Contact Inquiries:** Moved exclusively to super admin dashboard (removed from vendor dashboard)
 
 **Order Management System:**
 - Sequential order numbering per vendor for easy calling out
