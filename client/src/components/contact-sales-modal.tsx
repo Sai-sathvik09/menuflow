@@ -67,11 +67,16 @@ export function ContactSalesModal({ open, onOpenChange }: ContactSalesModalProps
 
   const submitInquiry = useMutation({
     mutationFn: async (data: ContactFormData) => {
-      return apiRequest("/api/contact-inquiries", {
+      const response = await fetch("/api/contact-inquiries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to submit inquiry");
+      }
+      return response.json();
     },
     onSuccess: () => {
       setIsSubmitted(true);
