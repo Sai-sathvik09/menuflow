@@ -90,6 +90,7 @@ export interface IStorage {
   getSuperAdmin(id: string): Promise<SuperAdmin | undefined>;
   getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined>;
   createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin>;
+  updateSuperAdminPassword(id: string, hashedPassword: string): Promise<SuperAdmin | undefined>;
   getAllVendors(): Promise<Vendor[]>;
   getPlatformStats(): Promise<{
     totalVendors: number;
@@ -453,6 +454,15 @@ export class DatabaseStorage implements IStorage {
       .values(insertAdmin)
       .returning();
     return admin;
+  }
+
+  async updateSuperAdminPassword(id: string, hashedPassword: string): Promise<SuperAdmin | undefined> {
+    const [updated] = await db
+      .update(superAdmins)
+      .set({ password: hashedPassword })
+      .where(eq(superAdmins.id, id))
+      .returning();
+    return updated || undefined;
   }
 
   async getAllVendors(): Promise<Vendor[]> {

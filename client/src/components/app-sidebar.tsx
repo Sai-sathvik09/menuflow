@@ -5,6 +5,7 @@ import {
   QrCode, 
   MapPin, 
   BarChart3,
+  Settings as SettingsIcon,
   LogOut
 } from "lucide-react";
 import { useLocation, Link } from "wouter";
@@ -66,6 +67,12 @@ const menuItems = [
     icon: BarChart3,
     proOnly: true,
     roles: ["owner"], // Only owners see analytics
+  },
+  {
+    title: "Settings",
+    url: "/settings",
+    icon: SettingsIcon,
+    roles: ["owner", "waiter", "kitchen"], // All roles can change their password
   },
 ];
 

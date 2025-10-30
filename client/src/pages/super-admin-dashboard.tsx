@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSuperAdminAuth } from "@/lib/super-admin-auth-context";
 import { Button } from "@/components/ui/button";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { 
   Users, 
   ShoppingBag, 
@@ -13,7 +13,8 @@ import {
   MapPin,
   MessageSquare,
   Building2,
-  Calendar
+  Calendar,
+  Settings as SettingsIcon
 } from "lucide-react";
 import { type Vendor, type ContactInquiry } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
@@ -87,7 +88,12 @@ export default function SuperAdminDashboard() {
             <h1 className="text-2xl font-bold font-display">MenuFlow Super Admin</h1>
             <p className="text-sm text-muted-foreground">Platform Administration Dashboard</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Link href="/super-admin/settings">
+              <Button variant="ghost" size="icon" data-testid="button-settings">
+                <SettingsIcon className="w-5 h-5" />
+              </Button>
+            </Link>
             <div className="text-right">
               <p className="text-sm font-medium">{superAdmin.name}</p>
               <p className="text-xs text-muted-foreground">{superAdmin.email}</p>

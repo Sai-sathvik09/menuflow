@@ -19,8 +19,10 @@ import MenuEditor from "@/pages/menu-editor";
 import QRCodes from "@/pages/qr-codes";
 import Tables from "@/pages/tables";
 import Analytics from "@/pages/analytics";
+import Settings from "@/pages/settings";
 import SuperAdminLogin from "@/pages/super-admin-login";
 import SuperAdminDashboard from "@/pages/super-admin-dashboard";
+import SuperAdminSettings from "@/pages/super-admin-settings";
 import NotFound from "@/pages/not-found";
 
 function OwnerLayout({ children }: { children: React.ReactNode }) {
@@ -84,6 +86,7 @@ function Router() {
       {/* Super Admin Routes */}
       <Route path="/super-admin/login" component={SuperAdminLogin} />
       <Route path="/super-admin/dashboard" component={SuperAdminDashboard} />
+      <Route path="/super-admin/settings" component={SuperAdminSettings} />
 
       {/* Owner Portal Routes (Protected) */}
       <Route path="/dashboard">
@@ -103,6 +106,9 @@ function Router() {
       </Route>
       <Route path="/analytics">
         <ProtectedRoute component={Analytics} />
+      </Route>
+      <Route path="/settings">
+        <ProtectedRoute component={Settings} />
       </Route>
 
       {/* 404 Fallback */}

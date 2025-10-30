@@ -416,6 +416,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/super-admin/change-password", async (req, res) => {
+    try {
+      const { superAdminId, currentPassword, newPassword } = req.body;
+      
+      if (!superAdminId) {
+        return res.status(400).json({ message: "Super admin ID required" });
+      }
+
+      const admin = await storage.getSuperAdmin(superAdminId);
+      if (!admin) {
+        return res.status(404).json({ message: "Super admin not found" });
+      }
+
+      const isValid = await bcrypt.compare(currentPassword, admin.password);
+      if (!isValid) {
+        return res.status(401).json({ message: "Current password is incorrect" });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      const updated = await storage.updateSuperAdminPassword(superAdminId, hashedPassword);
+
+      if (!updated) {
+        return res.status(500).json({ message: "Failed to update password" });
+      }
+
+      res.json({ message: "Password updated successfully" });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to change password" });
+    }
+  });
+
   app.get("/api/super-admin/stats", async (req, res) => {
     try {
       const stats = await storage.getPlatformStats();
