@@ -111,6 +111,15 @@ export const contactInquiries = pgTable("contact_inquiries", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Super Admins table (platform administrators)
+export const superAdmins = pgTable("super_admins", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Relations
 export const vendorsRelations = relations(vendors, ({ many, one }) => ({
   menuItems: many(menuItems),
@@ -275,6 +284,15 @@ export const insertContactInquirySchema = createInsertSchema(contactInquiries).o
   message: z.string().min(10),
 });
 
+export const insertSuperAdminSchema = createInsertSchema(superAdmins).omit({
+  id: true,
+  createdAt: true,
+}).extend({
+  email: z.string().email(),
+  password: z.string().min(6),
+  name: z.string().min(1),
+});
+
 // Login schema
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -304,6 +322,8 @@ export type InsertBill = z.infer<typeof insertBillSchema>;
 export type Bill = typeof bills.$inferSelect;
 export type InsertContactInquiry = z.infer<typeof insertContactInquirySchema>;
 export type ContactInquiry = typeof contactInquiries.$inferSelect;
+export type InsertSuperAdmin = z.infer<typeof insertSuperAdminSchema>;
+export type SuperAdmin = typeof superAdmins.$inferSelect;
 export type LoginCredentials = z.infer<typeof loginSchema>;
 export type ChangePassword = z.infer<typeof changePasswordSchema>;
 
