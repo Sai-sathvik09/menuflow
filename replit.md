@@ -1,277 +1,82 @@
 # MenuFlow - Digital Menu Platform
 
 ## Overview
-
-MenuFlow is a QR code-based digital menu platform designed for restaurants and street vendors. The system enables vendors to create customizable digital menus that customers can access by scanning QR codes, while providing owners with real-time order management, analytics, and business insights. The platform features a three-role architecture (owner, waiter, kitchen) with role-specific interfaces and smart order merging for table-based service.
+MenuFlow is a QR code-based digital menu platform for restaurants and street vendors. It enables vendors to create customizable digital menus accessible via QR codes, offering real-time order management, analytics, and business insights. The platform supports a three-role architecture (owner, waiter, kitchen) with role-specific interfaces and smart order merging for efficient table service, aiming to streamline operations and enhance customer experience in the food service industry.
 
 ## User Preferences
-
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend Architecture
+### Frontend
+- **Technology Stack:** React 18, TypeScript, Wouter, Radix UI, shadcn/ui, Tailwind CSS, TanStack Query, React Hook Form, Zod.
+- **Design System:** Food-inspired color palette, status-driven design with color-coded order states, touch-optimized interfaces, Nunito and Inter typography, custom CSS variables for theming.
+- **Key UI Patterns:** Card-based layouts for menus, real-time dashboard for order management, sidebar navigation with role-based visibility, status badges, WebSocket-powered live updates.
 
-**Technology Stack:**
-- **Framework:** React 18 with TypeScript
-- **Routing:** Wouter for lightweight client-side routing
-- **UI Components:** Radix UI primitives with shadcn/ui component system
-- **Styling:** Tailwind CSS with custom design tokens following food-inspired color palette
-- **State Management:** TanStack Query (React Query) for server state management
-- **Form Handling:** React Hook Form with Zod validation
-
-**Design System:**
-- Food-inspired color palette (Saffron Yellow, Paprika Red, Sage Green, Eggplant Purple, Creamy Beige)
-- Status-driven design with color-coded order states (new → preparing → ready → completed)
-- Touch-optimized interfaces with generous tap targets for mobile/tablet use
-- Typography: Nunito for headings (friendly, rounded), Inter for body text (high legibility)
-- Custom CSS variables for theming and dark mode support
-
-**Key UI Patterns:**
-- Card-based layouts inspired by DoorDash/UberEats for menu items
-- Real-time dashboard inspired by Toast POS for order management
-- Sidebar navigation for owner portal with role-based feature visibility
-- Status badges with icons for instant order state recognition
-- WebSocket-powered live updates with toast notifications
-
-### Backend Architecture
-
-**Technology Stack:**
-- **Runtime:** Node.js with Express.js
-- **Language:** TypeScript with ES modules
-- **Database:** PostgreSQL via Neon serverless
-- **ORM:** Drizzle ORM for type-safe database queries
-- **Authentication:** bcrypt for password hashing, localStorage-based session management
-- **Real-time:** WebSocket (ws library) for live order notifications
-
-**API Design:**
-- RESTful API structure under `/api` namespace
-- CRUD operations for vendors, menu items, tables, and orders
-- Status update endpoints for order workflow management
-- WebSocket endpoint at `/ws` for real-time vendor connections
-- Validation using Zod schemas shared between client and server
-
-**Authentication Flow:**
-- Registration creates vendor account with hashed password
-- Login returns vendor object stored in localStorage
-- Client-side auth context provides vendor state across application
-- Protected routes check vendor presence before rendering
-
-**Three-Role System:**
-- **Owner Role:** Full access to all features including menu management, table management, order management, analytics, waiter/kitchen staff creation
-- **Waiter Role:** Limited to menu viewing, table viewing, and order creation. Uses owner's vendorId for data access (effectiveVendorId pattern)
-- **Kitchen Role:** Limited to viewing and updating order statuses only. Cannot create orders or access other features
-- Role-based UI: Sidebar navigation dynamically shows only allowed features per role
-- Order creation workflow: Waiters see only Create Order button; owners see full order management interface with Create Order button; kitchen staff see only order status cards
-
-**Order Merging System:**
-- When creating an order with a tableId, system checks for existing active orders on that table
-- Active orders are those with status: new, preparing, or ready (excludes completed/archived)
-- If active order exists, new items are merged into it:
-  - Duplicate items: quantities are combined
-  - New items: added to order
-  - Total amount recalculated
-  - Existing order updated instead of creating duplicate
-  - Broadcasts ORDER_UPDATE WebSocket event
-- If no active order exists, creates new order normally and broadcasts NEW_ORDER
-- Prevents duplicate orders on same table, streamlines kitchen workflow
-
-**⚠️ CRITICAL SECURITY LIMITATION - VENDOR AUTHENTICATION:**
-The current vendor authentication system is NOT production-ready and has critical security flaws:
-- vendorId is stored in client localStorage and passed in API requests (can be spoofed)
-- No server-side session management or JWT verification
-- Role-based access controls can be bypassed by sending owner's vendorId
-- Provides UI-level access control only, not security against malicious actors
-
-**⚠️ CRITICAL SECURITY LIMITATION - SUPER ADMIN AUTHENTICATION:**
-The super admin system has similar critical security flaws:
-- superAdmin object stored in client localStorage (can be forged)
-- API endpoints `/api/super-admin/*` lack server-side authentication verification
-- Anyone can forge localStorage and access platform analytics, vendor list, and contact inquiries
-- `/api/contact-inquiries` remains publicly accessible
-- No protected route guards on frontend (client-side redirect only after mount)
-- Provides UI-level access control only, not security against malicious actors
-
-**Required for Production:**
-- Implement server-side session management (express-session) or JWT tokens for both vendors and super admins
-- Add authentication middleware to verify user identity from secure sessions
-- Add CSRF protection for state-changing operations
-- Implement proper role-based authorization checking authenticated user's role
-- Protect super admin API endpoints with backend middleware
-- Secure contact inquiries endpoint to super admin-only access
-
-**Staff Account Management:**
-- Owners can create waiter and kitchen staff accounts from the dashboard
-- **Tier Restrictions:**
-  - Starter: No staff accounts allowed
-  - Pro: Maximum 2 waiters + 2 kitchen staff
-  - Elite: Unlimited staff accounts
-- **Waiter Accounts:**
-  - Backend: POST /api/auth/waiters and GET /api/auth/waiters/:ownerId
-  - Storage method: getWaitersForOwner
-  - Dashboard UI includes form with email/password inputs and list of existing waiters
-  - Waiters login and see limited interface (menu viewing, table viewing, order creation only)
-- **Kitchen Staff Accounts:**
-  - Backend: POST /api/auth/kitchen and GET /api/auth/kitchen/:ownerId
-  - Storage method: getKitchenStaffForOwner
-  - Dashboard UI includes form with email/password inputs and list of existing kitchen staff
-  - Kitchen staff login and see limited interface (order status management only)
-
-**Super Admin System (Platform Administration):**
-- **Purpose:** Platform-wide administration and analytics for MenuFlow operators
-- **Access:** Separate login at `/super-admin/login` (Email: admin@menuflow.com, Password: admin123456)
-- **Features:**
-  - Platform analytics: Total vendors, subscription distribution, total orders, total revenue
-  - Vendor management: View all registered vendors with business details and subscription tiers
-  - Elite plan inquiries: Review contact form submissions from landing page
-- **Database:**
-  - super_admins table with email/password authentication
-  - Seeding script: `tsx server/seed-super-admin.ts`
-- **API Endpoints:**
-  - POST `/api/super-admin/login` - Super admin authentication
-  - GET `/api/super-admin/stats` - Platform statistics
-  - GET `/api/super-admin/vendors` - All vendor accounts
-  - GET `/api/contact-inquiries` - Elite plan sales leads (moved from vendor dashboard)
-- **Security Note:** Same critical limitations as vendor auth - localStorage-based with no server verification
-- **Contact Inquiries:** Moved exclusively to super admin dashboard (removed from vendor dashboard)
-
-**Order Management System:**
-- Sequential order numbering per vendor for easy calling out
-- Four-state workflow: new → preparing → ready → completed
-- Real-time WebSocket broadcasts to vendor connections on new orders
-- Order items stored as JSON with denormalized menu item data (prevents issues if menu changes)
-- Smart order merging prevents duplicate orders on same table
+### Backend
+- **Technology Stack:** Node.js, Express.js, TypeScript, PostgreSQL (Neon serverless), Drizzle ORM, bcrypt, WebSocket (ws library).
+- **API Design:** RESTful API for CRUD operations, status updates, and WebSocket at `/ws`. Zod for shared schema validation.
+- **Authentication:** LocalStorage-based session management. **Critical Security Limitation:** Current authentication is not production-ready; requires server-side session management (e.g., JWT, `express-session`) and proper role-based authorization for production.
+- **Three-Role System:**
+    - **Owner:** Full access (menu, table, order management, analytics, staff creation).
+    - **Waiter:** Limited to menu viewing, table viewing, order creation.
+    - **Kitchen:** Limited to viewing and updating order statuses.
+    - Role-based UI dynamically shows allowed features.
+- **Order Merging System:** Automatically merges new items into existing active orders for a given table, preventing duplicate orders and updating quantities.
+- **Staff Account Management:** Owners can create waiter and kitchen staff accounts with tier-based restrictions (Starter: No staff; Pro: Max 2 waiters + 2 kitchen; Elite: Unlimited).
+- **Super Admin System:** Platform-wide administration with features for platform analytics, vendor management, and elite plan inquiry tracking. **Critical Security Limitation:** Similar to vendor authentication, super admin auth is not production-ready.
+- **Settings and Account Management:** Users can change passwords, with secure verification of current password.
 
 ### Data Architecture
-
-**Database Schema (Drizzle ORM):**
-
-**Vendors Table:**
-- Stores business accounts with email/password authentication
-- Subscription tier (starter/pro/elite) controls feature access
-- Table limit enforced based on tier (0 for starter, 10/25/unlimited for pro tiers)
-
-**Menu Items Table:**
-- Each vendor owns multiple menu items
-- Categories for organization (appetizers, mains, beverages, desserts, sides)
-- Availability toggle for sold-out management
-- Dietary tags array (vegetarian, vegan, spicy, gluten-free)
-- Optional image URLs for food photography
-- Cascade delete on vendor removal
-
-**Tables Table:**
-- Pro/Elite tier feature for restaurant table management
-- Each table has unique QR code for customer scanning
-- Table number for easy identification
-- Active/inactive status toggle
-- Cascade delete on vendor removal
-
-**Orders Table:**
-- Links to vendor and optionally to table (null for street vendors)
-- Sequential order number per vendor
-- Status field tracks workflow state
-- Items stored as JSON array with denormalized menu data (prevents issues if menu changes)
-- Total amount calculated at order creation
-- Optional customer name for personalized service
-- Timestamps for order tracking
-
-**Relationships:**
-- Vendor → Menu Items (one-to-many)
-- Vendor → Tables (one-to-many)
-- Vendor → Orders (one-to-many)
-- Table → Orders (one-to-many, nullable)
+- **Database Schema (Drizzle ORM):**
+    - **Vendors:** Stores business accounts, subscription tier, and table limits.
+    - **Menu Items:** Stores menu details, categories, availability, dietary tags, and image URLs.
+    - **Tables:** Manages restaurant tables with unique QR codes.
+    - **Orders:** Stores order details, links to vendor/table, sequential order numbers, status, items (as denormalized JSON), total amount, and timestamps.
+- **Relationships:** One-to-many relationships between Vendor and Menu Items, Tables, and Orders.
 
 ### Real-time Communication
-
-**WebSocket Implementation:**
-- Server maintains Map of vendorId → WebSocket connections array
-- Multiple devices per vendor supported (kitchen display, tablet, phone)
-- Connection established with vendorId query parameter
-- Automatic connection cleanup on disconnect
-
-**Message Types:**
-- `NEW_ORDER`: Broadcast when customer places order, triggers query invalidation and toast notification
-- `ORDER_UPDATE`: Broadcast when order status changes, refreshes order list
-
-**Client Integration:**
-- Custom `useWebSocket` hook manages connection lifecycle
-- Automatically connects when vendor logged in
-- Invalidates React Query cache on updates for instant UI refresh
-- Optional audio notification on new orders
+- **WebSocket Implementation:** Server manages connections per vendor, supporting multiple devices.
+- **Message Types:** `NEW_ORDER` (customer order), `ORDER_UPDATE` (status change).
+- **Client Integration:** `useWebSocket` hook manages connection, invalidates React Query cache, provides optional audio notifications.
 
 ### Subscription Tier System
-
-**Starter Tier:**
-- Core QR menu functionality
-- Unlimited menu items
-- Basic order management
-- No table management (street vendor mode)
-- Dashboard and live orders
-
-**Pro Tier:**
-- All Starter features
-- Table management (10 or 25 tables based on sub-tier)
-- QR codes per table
-- Analytics dashboard
-- CRM insights (most/least ordered items, revenue tracking)
-
-**Elite Tier:**
-- All Pro features
-- Unlimited tables
-- Advanced AI-powered insights (placeholder for future)
-- Premium customization options
-
-**Feature Gates:**
-- Sidebar items show "Pro Only" badge for locked features
-- Tables and Analytics pages check subscription tier
-- Table creation enforces table limit based on tier
+- **Starter:** Core QR menu, basic order management, no table management.
+- **Pro:** All Starter features + table management (10 or 25 tables), analytics, CRM insights.
+- **Elite:** All Pro features + unlimited tables, advanced AI insights (future), premium customization.
+- Features are gated based on the subscription tier.
 
 ### Build and Deployment
-
-**Development:**
-- Vite dev server with HMR for frontend
-- tsx for running TypeScript backend with hot reload
-- Shared schema between client/server prevents type mismatches
-
-**Production Build:**
-- Vite builds frontend to `dist/public`
-- esbuild bundles backend to `dist/index.js`
-- Static file serving from Express in production
-- Database migrations via Drizzle Kit
-
-**Environment:**
-- `DATABASE_URL` required for PostgreSQL connection
-- Neon serverless with WebSocket support for edge deployment
-- Environment-aware configuration (development vs production)
+- **Development:** Vite (frontend), tsx (backend) with hot reload.
+- **Production Build:** Vite builds frontend, esbuild bundles backend.
+- **Environment:** `DATABASE_URL` for PostgreSQL, Neon serverless for edge deployment.
 
 ## External Dependencies
 
 ### Database
-- **Neon PostgreSQL:** Serverless Postgres with WebSocket support for edge compatibility
-- **Drizzle ORM:** Type-safe database client with schema-first design
-- **drizzle-kit:** CLI for migrations and schema management
+- **Neon PostgreSQL:** Serverless Postgres.
+- **Drizzle ORM:** Type-safe database client.
+- **drizzle-kit:** CLI for migrations.
 
 ### UI Component Libraries
-- **Radix UI:** Headless accessible component primitives (Dialog, Dropdown, Tabs, etc.)
-- **shadcn/ui:** Pre-styled Radix UI components with Tailwind CSS
-- **Lucide React:** Icon library for consistent iconography
-- **qrcode.react:** QR code generation for table and menu URLs
+- **Radix UI:** Headless accessible components.
+- **shadcn/ui:** Pre-styled Radix UI components.
+- **Lucide React:** Icon library.
+- **qrcode.react:** QR code generation.
 
 ### State Management & Data Fetching
-- **TanStack Query:** Server state management with caching, invalidation, and WebSocket integration
-- **React Hook Form:** Performant form handling with minimal re-renders
-- **Zod:** Schema validation for forms and API payloads
+- **TanStack Query:** Server state management.
+- **React Hook Form:** Form handling.
+- **Zod:** Schema validation.
 
 ### Utilities
-- **date-fns:** Date formatting and manipulation for order timestamps
-- **bcrypt:** Password hashing for secure authentication
-- **class-variance-authority:** Type-safe variant-based styling
-- **clsx & tailwind-merge:** Conditional class name composition
+- **date-fns:** Date manipulation.
+- **bcrypt:** Password hashing.
+- **class-variance-authority, clsx, tailwind-merge:** Styling utilities.
 
 ### Development Tools
-- **Vite:** Fast build tool with HMR and optimized production builds
-- **TypeScript:** Type safety across frontend and backend
-- **Replit Plugins:** Runtime error overlay, cartographer, dev banner for development experience
+- **Vite:** Build tool.
+- **TypeScript:** Type safety.
 
 ### Fonts
-- **Google Fonts:** Nunito (display/headings) and Inter (body text) for brand typography
+- **Google Fonts:** Nunito and Inter.
