@@ -12,6 +12,7 @@ import {
   insertOrderSchema,
   insertChatMessageSchema,
   insertFileUploadSchema,
+  insertContactInquirySchema,
   type Order,
   type InsertMenuItem
 } from "@shared/schema";
@@ -356,6 +357,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(waiters);
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to fetch waiters" });
+    }
+  });
+
+  // Contact Inquiry Routes (for Elite tier sales leads from landing page)
+  app.post("/api/contact-inquiries", async (req, res) => {
+    try {
+      const data = insertContactInquirySchema.parse(req.body);
+      const inquiry = await storage.createContactInquiry(data);
+      res.json(inquiry);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to submit inquiry" });
+    }
+  });
+
+  app.get("/api/contact-inquiries", async (req, res) => {
+    try {
+      const inquiries = await storage.getContactInquiries();
+      res.json(inquiries);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch contact inquiries" });
+    }
+  });
+
+  app.patch("/api/contact-inquiries/:id/status", async (req, res) => {
+    try {
+      const { status } = req.body;
+      const updated = await storage.updateContactInquiryStatus(req.params.id, status);
+      if (!updated) {
+        return res.status(404).json({ message: "Inquiry not found" });
+      }
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Failed to update inquiry status" });
     }
   });
 

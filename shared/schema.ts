@@ -97,6 +97,20 @@ export const bills = pgTable("bills", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Contact Inquiries table (for Elite tier sales leads)
+export const contactInquiries = pgTable("contact_inquiries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  businessName: text("business_name").notNull(),
+  contactPerson: text("contact_person").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone").notNull(),
+  restaurantType: text("restaurant_type").notNull(),
+  numberOfLocations: text("number_of_locations").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("new"), // new, contacted, qualified, converted, declined
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // Relations
 export const vendorsRelations = relations(vendors, ({ many, one }) => ({
   menuItems: many(menuItems),
@@ -247,6 +261,20 @@ export const insertBillSchema = createInsertSchema(bills).omit({
   totalAmount: z.string().regex(/^\d+(\.\d{1,2})?$/),
 });
 
+export const insertContactInquirySchema = createInsertSchema(contactInquiries).omit({
+  id: true,
+  createdAt: true,
+  status: true,
+}).extend({
+  businessName: z.string().min(2),
+  contactPerson: z.string().min(2),
+  email: z.string().email(),
+  phone: z.string().min(10),
+  restaurantType: z.string().min(1),
+  numberOfLocations: z.string().min(1),
+  message: z.string().min(10),
+});
+
 // Login schema
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -274,6 +302,8 @@ export type InsertFileUpload = z.infer<typeof insertFileUploadSchema>;
 export type FileUpload = typeof fileUploads.$inferSelect;
 export type InsertBill = z.infer<typeof insertBillSchema>;
 export type Bill = typeof bills.$inferSelect;
+export type InsertContactInquiry = z.infer<typeof insertContactInquirySchema>;
+export type ContactInquiry = typeof contactInquiries.$inferSelect;
 export type LoginCredentials = z.infer<typeof loginSchema>;
 export type ChangePassword = z.infer<typeof changePasswordSchema>;
 

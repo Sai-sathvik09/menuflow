@@ -1,9 +1,14 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { QrCode, Zap, BarChart3, Sparkles } from "lucide-react";
+import { ContactSalesModal } from "@/components/contact-sales-modal";
 
 export default function Landing() {
+  const [showContactModal, setShowContactModal] = useState(false);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background via-background to-primary/5">
       {/* Hero Section */}
@@ -75,9 +80,16 @@ export default function Landing() {
           <div className="grid md:grid-cols-3 gap-6">
             <Card className="hover-elevate transition-all duration-300">
               <CardHeader>
+                <Badge className="mb-2 self-start bg-green-500/20 text-green-700 dark:text-green-400 hover:bg-green-500/30">
+                  Save ₹499
+                </Badge>
                 <CardTitle className="font-display text-2xl">Starter</CardTitle>
                 <CardDescription className="text-base">Perfect for street vendors</CardDescription>
-                <div className="text-4xl font-bold font-display text-primary py-4">Free</div>
+                <div className="py-4">
+                  <div className="text-2xl line-through text-muted-foreground">₹499</div>
+                  <div className="text-5xl font-bold font-display text-primary">₹0</div>
+                  <div className="text-sm text-muted-foreground">Forever free</div>
+                </div>
               </CardHeader>
               <CardContent className="space-y-2 text-left">
                 <div className="flex items-start gap-2">
@@ -101,13 +113,20 @@ export default function Landing() {
 
             <Card className="hover-elevate transition-all duration-300 border-primary">
               <CardHeader>
-                <div className="inline-flex items-center gap-2 bg-primary/20 text-primary px-3 py-1 rounded-full text-sm font-semibold mb-2 self-start">
-                  Most Popular
+                <div className="flex gap-2 mb-2">
+                  <Badge className="bg-primary/20 text-primary hover:bg-primary/30">
+                    Most Popular
+                  </Badge>
+                  <Badge className="bg-green-500/20 text-green-700 dark:text-green-400 hover:bg-green-500/30">
+                    Save ₹1,000
+                  </Badge>
                 </div>
                 <CardTitle className="font-display text-2xl">Pro</CardTitle>
                 <CardDescription className="text-base">For restaurants & cafes</CardDescription>
-                <div className="text-4xl font-bold font-display text-primary py-4">
-                  $29-79<span className="text-lg text-muted-foreground">/mo</span>
+                <div className="py-4">
+                  <div className="text-2xl line-through text-muted-foreground">₹1,999</div>
+                  <div className="text-5xl font-bold font-display text-primary">₹999</div>
+                  <div className="text-sm text-muted-foreground">per month</div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-2 text-left">
@@ -135,9 +154,12 @@ export default function Landing() {
               <CardHeader>
                 <CardTitle className="font-display text-2xl">Elite</CardTitle>
                 <CardDescription className="text-base">Advanced features & AI</CardDescription>
-                <div className="text-4xl font-bold font-display text-primary py-4">Custom</div>
+                <div className="py-4">
+                  <div className="text-4xl font-bold font-display text-primary mb-2">Custom</div>
+                  <div className="text-sm text-muted-foreground">Tailored pricing for your business</div>
+                </div>
               </CardHeader>
-              <CardContent className="space-y-2 text-left">
+              <CardContent className="space-y-4 text-left">
                 <div className="font-semibold mb-2">Everything in Pro, plus:</div>
                 <div className="flex items-start gap-2">
                   <Sparkles className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
@@ -155,6 +177,14 @@ export default function Landing() {
                   <Sparkles className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
                   <span>Priority support</span>
                 </div>
+                <Button 
+                  className="w-full mt-4" 
+                  variant="default"
+                  onClick={() => setShowContactModal(true)}
+                  data-testid="button-contact-sales"
+                >
+                  Contact Sales
+                </Button>
               </CardContent>
             </Card>
           </div>
@@ -167,6 +197,11 @@ export default function Landing() {
           <p>&copy; {new Date().getFullYear()} MenuFlow. Streamlining hospitality, one order at a time.</p>
         </div>
       </div>
+
+      <ContactSalesModal 
+        open={showContactModal} 
+        onOpenChange={setShowContactModal}
+      />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   chatMessages,
   fileUploads,
   bills,
+  contactInquiries,
   type Vendor,
   type InsertVendor,
   type MenuItem,
@@ -21,6 +22,8 @@ import {
   type InsertFileUpload,
   type Bill,
   type InsertBill,
+  type ContactInquiry,
+  type InsertContactInquiry,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
@@ -74,6 +77,11 @@ export interface IStorage {
   // Bills
   createBill(bill: InsertBill): Promise<Bill>;
   getBillByOrderId(orderId: string): Promise<Bill | undefined>;
+
+  // Contact Inquiries
+  createContactInquiry(inquiry: InsertContactInquiry): Promise<ContactInquiry>;
+  getContactInquiries(): Promise<ContactInquiry[]>;
+  updateContactInquiryStatus(id: string, status: string): Promise<ContactInquiry | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -384,6 +392,31 @@ export class DatabaseStorage implements IStorage {
       .from(bills)
       .where(eq(bills.orderId, orderId));
     return bill || undefined;
+  }
+
+  // Contact Inquiries
+  async createContactInquiry(inquiry: InsertContactInquiry): Promise<ContactInquiry> {
+    const [newInquiry] = await db
+      .insert(contactInquiries)
+      .values(inquiry)
+      .returning();
+    return newInquiry;
+  }
+
+  async getContactInquiries(): Promise<ContactInquiry[]> {
+    return await db
+      .select()
+      .from(contactInquiries)
+      .orderBy(desc(contactInquiries.createdAt));
+  }
+
+  async updateContactInquiryStatus(id: string, status: string): Promise<ContactInquiry | undefined> {
+    const [updated] = await db
+      .update(contactInquiries)
+      .set({ status })
+      .where(eq(contactInquiries.id, id))
+      .returning();
+    return updated || undefined;
   }
 }
 
