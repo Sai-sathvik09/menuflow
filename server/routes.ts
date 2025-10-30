@@ -393,6 +393,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Super Admin Routes (platform administration)
+  app.post("/api/super-admin/login", async (req, res) => {
+    try {
+      const data = loginSchema.parse(req.body);
+      const admin = await storage.getSuperAdminByEmail(data.email);
+
+      if (!admin) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      const isValid = await bcrypt.compare(data.password, admin.password);
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // Return admin without password
+      const { password, ...adminData } = admin;
+      res.json(adminData);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message || "Login failed" });
+    }
+  });
+
+  app.get("/api/super-admin/stats", async (req, res) => {
+    try {
+      const stats = await storage.getPlatformStats();
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch platform stats" });
+    }
+  });
+
+  app.get("/api/super-admin/vendors", async (req, res) => {
+    try {
+      const vendors = await storage.getAllVendors();
+      // Remove passwords from response
+      const sanitizedVendors = vendors.map(({ password, ...rest }) => rest);
+      res.json(sanitizedVendors);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch vendors" });
+    }
+  });
+
   // Menu Routes
   app.get("/api/menu/:vendorId", async (req, res) => {
     try {

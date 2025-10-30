@@ -8,6 +8,7 @@ import {
   fileUploads,
   bills,
   contactInquiries,
+  superAdmins,
   type Vendor,
   type InsertVendor,
   type MenuItem,
@@ -24,6 +25,8 @@ import {
   type InsertBill,
   type ContactInquiry,
   type InsertContactInquiry,
+  type SuperAdmin,
+  type InsertSuperAdmin,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
@@ -82,6 +85,20 @@ export interface IStorage {
   createContactInquiry(inquiry: InsertContactInquiry): Promise<ContactInquiry>;
   getContactInquiries(): Promise<ContactInquiry[]>;
   updateContactInquiryStatus(id: string, status: string): Promise<ContactInquiry | undefined>;
+
+  // Super Admins
+  getSuperAdmin(id: string): Promise<SuperAdmin | undefined>;
+  getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined>;
+  createSuperAdmin(admin: InsertSuperAdmin): Promise<SuperAdmin>;
+  getAllVendors(): Promise<Vendor[]>;
+  getPlatformStats(): Promise<{
+    totalVendors: number;
+    starterCount: number;
+    proCount: number;
+    eliteCount: number;
+    totalOrders: number;
+    totalRevenue: string;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -417,6 +434,62 @@ export class DatabaseStorage implements IStorage {
       .where(eq(contactInquiries.id, id))
       .returning();
     return updated || undefined;
+  }
+
+  // Super Admins
+  async getSuperAdmin(id: string): Promise<SuperAdmin | undefined> {
+    const [admin] = await db.select().from(superAdmins).where(eq(superAdmins.id, id));
+    return admin || undefined;
+  }
+
+  async getSuperAdminByEmail(email: string): Promise<SuperAdmin | undefined> {
+    const [admin] = await db.select().from(superAdmins).where(eq(superAdmins.email, email));
+    return admin || undefined;
+  }
+
+  async createSuperAdmin(insertAdmin: InsertSuperAdmin): Promise<SuperAdmin> {
+    const [admin] = await db
+      .insert(superAdmins)
+      .values(insertAdmin)
+      .returning();
+    return admin;
+  }
+
+  async getAllVendors(): Promise<Vendor[]> {
+    return await db
+      .select()
+      .from(vendors)
+      .where(eq(vendors.role, "owner"))
+      .orderBy(desc(vendors.createdAt));
+  }
+
+  async getPlatformStats(): Promise<{
+    totalVendors: number;
+    starterCount: number;
+    proCount: number;
+    eliteCount: number;
+    totalOrders: number;
+    totalRevenue: string;
+  }> {
+    const allVendors = await db
+      .select()
+      .from(vendors)
+      .where(eq(vendors.role, "owner"));
+    
+    const allOrders = await db.select().from(orders);
+    
+    const totalRevenue = allOrders.reduce((sum, order) => {
+      return sum + parseFloat(order.totalAmount);
+    }, 0);
+
+    return {
+      totalVendors: allVendors.length,
+      starterCount: allVendors.filter(v => v.subscriptionTier === "starter").length,
+      proCount: allVendors.filter(v => v.subscriptionTier === "pro").length,
+      eliteCount: allVendors.filter(v => v.subscriptionTier === "elite").length,
+      totalOrders: allOrders.length,
+      totalRevenue: totalRevenue.toFixed(2),
+    };
   }
 }
 
