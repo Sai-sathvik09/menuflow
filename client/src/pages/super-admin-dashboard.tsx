@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSuperAdminAuth } from "@/lib/super-admin-auth-context";
 import { Button } from "@/components/ui/button";
@@ -17,10 +17,14 @@ import {
 } from "lucide-react";
 import { type Vendor, type ContactInquiry } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export default function SuperAdminDashboard() {
   const { superAdmin, logout } = useSuperAdminAuth();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   const { data: stats } = useQuery<{
     totalVendors: number;
@@ -42,6 +46,26 @@ export default function SuperAdminDashboard() {
   const { data: contactInquiries = [] } = useQuery<ContactInquiry[]>({
     queryKey: ["/api/contact-inquiries"],
     enabled: !!superAdmin?.id,
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ inquiryId, status }: { inquiryId: string; status: string }) => {
+      return await apiRequest("PATCH", `/api/contact-inquiries/${inquiryId}/status`, { status });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contact-inquiries"] });
+      toast({
+        title: "Status Updated",
+        description: "The inquiry status has been updated successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update inquiry status. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleLogout = () => {
@@ -191,9 +215,22 @@ export default function SuperAdminDashboard() {
                             <CardDescription>{inquiry.contactPerson}</CardDescription>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant={inquiry.status === "new" ? "default" : "secondary"}>
-                              {inquiry.status}
-                            </Badge>
+                            <Select
+                              value={inquiry.status}
+                              onValueChange={(value) => updateStatusMutation.mutate({ inquiryId: inquiry.id, status: value })}
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              <SelectTrigger className="w-[150px]" data-testid={`status-select-${inquiry.id}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="new">New</SelectItem>
+                                <SelectItem value="contacted">Contacted</SelectItem>
+                                <SelectItem value="qualified">Qualified</SelectItem>
+                                <SelectItem value="converted">Converted</SelectItem>
+                                <SelectItem value="declined">Declined</SelectItem>
+                              </SelectContent>
+                            </Select>
                             <div className="text-sm text-muted-foreground whitespace-nowrap">
                               {new Date(inquiry.createdAt).toLocaleDateString()}
                             </div>
